@@ -14,7 +14,7 @@ syntax keyword roniTodos TODO XXX FIXME NOTE
 
 " Language keywords
 syntax keyword roniKeywords expr pat bind
-syntax keyword roniLoopKeywords while if else break continue loop
+syntax keyword roniLoopKeywords while if else break continue loop for
 
 " Comments
 syntax region roniCommentLine start="//" end="$"   contains=roniTodos

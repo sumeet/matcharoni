@@ -31,6 +31,9 @@ pub enum Binding {
     Concat(Box<Binding>, Box<Binding>),
     ListOf(Box<Binding>, Option<ListLenBinding>),
     Named(String, Box<Binding>),
+    // TODO: should this be an Expr and not only a Ref?
+    Ref(String),
+    Anything,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +49,8 @@ pub enum Expr {
     If(Box<Conditional>),
     While(Box<Conditional>),
     Ref(String),
+    Block(Vec<Expr>),
+    Assignment(String, Box<Expr>),
 }
 
 #[derive(Debug)]
@@ -84,7 +89,7 @@ peg::parser! {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
         rule scalar_binding() -> Binding
-            = named_binding() / char_binding() / list_binding()
+            = named_binding() / char_binding() / list_binding() / any_binding() / ref_binding()
 
         rule list_binding() -> Binding
             = "[" _? binding:binding() _? "]" _? len:list_len_binding()? {
@@ -102,10 +107,21 @@ peg::parser! {
             }
         rule char_binding() -> Binding
             = char:char_lit() { Binding::Char(char) }
+        rule any_binding() -> Binding
+            = "ANY" { Binding::Anything }
+        rule ref_binding() -> Binding
+            = name:ident() { Binding::Ref(name.to_owned()) }
 
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
         rule expr() -> Expr
-            = char_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() / while_expr() / ref_expr()
+            = (assignment_expr() / char_literal_expr() / int_literal_expr() / if_else_expr() /
+               if_no_else_expr() / while_expr() / ref_expr() / block_expr())
+
+        rule assignment_expr() -> Expr
+            = name:ident() _? "=" _? expr:expr() { Expr::Assignment(name.to_owned(), Box::new(expr)) }
+
+        rule block_expr() -> Expr
+            = "{" _? exprs:(expr() ** whitespace()) _? "}" { Expr::Block(exprs) }
 
         rule while_expr() -> Expr
             = "while" _ cond:expr() _? ":" _? then:expr() {

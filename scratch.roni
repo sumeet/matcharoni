@@ -22,9 +22,19 @@ bind { xs@([($n ~ ",")]) } => {
 }
 --- taxnys ---
 
+pat enumerate { xs@[ANY]{num_lines} => {
+  ixs = []
+  // TODO: for loop
+  i = 0
+  while i < num_lines: {
+    ixs.push([i, fetch(xs, i)])
+    i += 1 
+  }
+  ixs
+}}
 pat bin { '0' => 0, '1' => 1 }
 pat line { bins@([bin]{1+}) ~ '\n' => bins }
-pat lines { [line]{num_lines} => [[#line, line], num_lines] }
+pat lines { lines@([line]{num_lines}) => [enumerate(lines), num_lines] }
 
 pat bin_le_to_int {
   bits@([&Int]{len}) => {
