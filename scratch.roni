@@ -27,7 +27,7 @@ pat enumerate { xs@[ANY]{num_lines} => {
   // TODO: for loop
   i = 0
   while i < num_lines: {
-    ixs.push([i, fetch(xs, i)])
+    ixs.push([i, xs(i)])
     i += 1 
   }
   ixs

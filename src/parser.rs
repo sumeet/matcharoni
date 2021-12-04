@@ -2,24 +2,24 @@ use litrs::CharLit;
 
 pub use parser::program as parse_program;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     statements: Vec<Statement>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     PatDef(PatDef),
     Expr(Expr),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PatDef {
     name: String,
     matches: Vec<Match>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Match {
     binding: Binding,
     expr: Expr,
@@ -42,7 +42,7 @@ pub enum ListLenBinding {
     ToName(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     CharLiteral(char),
     IntLiteral(i128),
@@ -51,9 +51,11 @@ pub enum Expr {
     Ref(String),
     Block(Vec<Expr>),
     Assignment(String, Box<Expr>),
+    ListLiteral(Vec<Expr>),
+    FuncCall(Box<Expr>, Vec<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Conditional {
     cond: Expr,
     then: Expr,
@@ -114,9 +116,17 @@ peg::parser! {
 
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
         rule expr() -> Expr
-            = (assignment_expr() / char_literal_expr() / int_literal_expr() / if_else_expr() /
-               if_no_else_expr() / while_expr() / ref_expr() / block_expr())
+            = (func_call_expr() / assignment_expr() / list_literal_expr() / char_literal_expr() / int_literal_expr() /
+               if_else_expr() / if_no_else_expr() / while_expr() / ref_expr() / block_expr())
 
+        // TODO: can we () call any expr instead of only names?
+        rule func_call_expr() -> Expr
+            = name:ident() _? "(" _? args:(expr() ** comma()) _? ")" {
+                Expr::FuncCall(Box::new(Expr::Ref(name.to_owned())), args)
+            }
+
+        rule list_literal_expr() -> Expr
+            = "[" _? exprs:(expr() ** comma()) _? "]" { Expr::ListLiteral(exprs) }
         rule assignment_expr() -> Expr
             = name:ident() _? "=" _? expr:expr() { Expr::Assignment(name.to_owned(), Box::new(expr)) }
 
