@@ -26,7 +26,7 @@ pub struct Match {
     expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Binding {
     Char(char),
     Concat(Box<Binding>, Box<Binding>),
@@ -34,7 +34,7 @@ pub enum Binding {
     Named(String, Box<Binding>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ListLenBinding {
     Min(usize),
     ToName(String),
@@ -77,8 +77,14 @@ peg::parser! {
             = binding:binding() _? "=>" _? expr:expr() { Match { binding, expr } }
 
         rule binding() -> Binding
-            = char_binding() // concat_binding() / list_binding() / named_binding()
+            = concat_binding() / scalar_binding()
 
+        rule concat_binding() -> Binding
+            = binding1:scalar_binding() _? "~" _? binding2:scalar_binding() {
+                Binding::Concat(Box::new(binding1), Box::new(binding2))
+            }
+        rule scalar_binding() -> Binding
+            = char_binding() // list_binding() / named_binding()
         rule char_binding() -> Binding
             = char:char_lit() { Binding::Char(char) }
 
