@@ -6,6 +6,8 @@ const TEST_PROGGY: &str = r#"
 1
 2
 69
+if 1: 1
+if 2: 1 else: 2
 "#;
 
 fn main() -> anyhow::Result<()> {

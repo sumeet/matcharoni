@@ -57,7 +57,16 @@ peg::parser! {
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
 
         rule expr() -> Expr
-            = char_literal() / int_literal() // if_expr() / while_expr()
+            = char_literal() / int_literal() / if_else_expr() / if_no_else_expr() // while_expr()
+
+        rule if_else_expr() -> Expr
+            = "if" _ cond:expr() _? ":" _? then:expr() _ "else:" _? r#else:expr() {
+                Expr::If(Box::new(Conditional { cond, then, r#else: Some(r#else) }))
+            }
+        rule if_no_else_expr() -> Expr
+            = "if" _ cond:expr() _? ":" _? then:expr() {
+                Expr::If(Box::new(Conditional { cond, then, r#else: None }))
+            }
 
         rule char_literal() -> Expr
             = char:$("'" "\\"? [_] "'") {?
