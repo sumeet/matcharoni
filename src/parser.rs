@@ -85,7 +85,16 @@ peg::parser! {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
         rule scalar_binding() -> Binding
-            = named_binding() / char_binding() // list_binding()
+            = named_binding() / char_binding() / list_binding()
+
+        rule list_binding() -> Binding
+            = list_binding_no_len() // list_binding_with_len()
+
+        rule list_binding_no_len() -> Binding
+            = "[" _? binding:binding() _? "]" {
+                Binding::ListOf(Box::new(binding), None)
+            }
+
         rule named_binding() -> Binding
             = name:ident() _? "@" _? "(" _? binding:binding() _? ")" {
                 Binding::Named(name.to_owned(), Box::new(binding))
@@ -112,7 +121,7 @@ peg::parser! {
             }
 
         rule ref_expr() -> Expr
-            = name:ident() { Expr::Ref(name.to_owned()) }
+            = name:$("#"? ident()) { Expr::Ref(name.to_owned()) }
         rule char_literal_expr() -> Expr
             = char:char_lit() { Expr::CharLiteral(char) }
         rule int_literal_expr() -> Expr = int:int() { Expr::IntLiteral(int) }
