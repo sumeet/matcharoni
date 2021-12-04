@@ -50,8 +50,8 @@ pat bin_le_to_int {
 }
 
 
-input = read_to_string "./input"
-(readings, num_lines) = lines(input)
+input = read_to_string("./input")
+[readings, num_lines] = lines(input)
 
 pat calc_most_commons { [sum@(&Int)] => (sum / 2) > (num_lines / 2) }
 pat calc_most_commons { [sum@(&Int)] => (sum / 2) < (num_lines / 2) }

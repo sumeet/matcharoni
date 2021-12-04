@@ -1,4 +1,4 @@
-use litrs::CharLit;
+use litrs::{CharLit, StringLit};
 
 pub use parser::program as parse_program;
 
@@ -45,6 +45,7 @@ pub enum ListLenBinding {
 #[derive(Debug, Clone)]
 pub enum Expr {
     CharLiteral(char),
+    StringLiteral(String),
     IntLiteral(i128),
     If(Box<Conditional>),
     While(Box<Conditional>),
@@ -116,8 +117,9 @@ peg::parser! {
 
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
         rule expr() -> Expr
-            = (func_call_expr() / assignment_expr() / list_literal_expr() / char_literal_expr() / int_literal_expr() /
-               if_else_expr() / if_no_else_expr() / while_expr() / ref_expr() / block_expr())
+            = (func_call_expr() / assignment_expr() / list_literal_expr() / char_literal_expr() /
+               string_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() /
+               while_expr() / ref_expr() / block_expr())
 
         // TODO: can we () call any expr instead of only names?
         rule func_call_expr() -> Expr
@@ -150,9 +152,15 @@ peg::parser! {
         rule ref_expr() -> Expr
             = name:$("#"? ident()) { Expr::Ref(name.to_owned()) }
         rule char_literal_expr() -> Expr
-            = char:char_lit() { Expr::CharLiteral(char) }
+            = char_lit:char_lit() { Expr::CharLiteral(char_lit) }
+        rule string_literal_expr() -> Expr
+            = string_lit:string_lit() { Expr::StringLiteral(string_lit) }
         rule int_literal_expr() -> Expr = int:int() { Expr::IntLiteral(int) }
 
+        rule string_lit() -> String
+            = str:$("\"" (!['"'][_] / "\"\"")* "\"") {?
+                Ok(StringLit::parse(str).or_else(|e| { dbg!(str, e) ; Err("string_lit: " ) })?.value().to_owned())
+            }
         rule char_lit() -> char
             = char:$("'" "\\"? [_] "'") {?
                 Ok(CharLit::parse(char).or_else(|e| { dbg!(e) ; Err("char_lit: " ) })?.value())
