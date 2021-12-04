@@ -1,5 +1,4 @@
 use litrs::CharLit;
-use std::ops::Range;
 
 pub use parser::program as parse_program;
 
@@ -88,12 +87,14 @@ peg::parser! {
             = named_binding() / char_binding() / list_binding()
 
         rule list_binding() -> Binding
-            = list_binding_no_len() // list_binding_with_len()
-
-        rule list_binding_no_len() -> Binding
-            = "[" _? binding:binding() _? "]" {
-                Binding::ListOf(Box::new(binding), None)
+            = "[" _? binding:binding() _? "]" _? len:list_len_binding()? {
+                Binding::ListOf(Box::new(binding), len)
             }
+        rule list_len_binding() -> ListLenBinding
+            = "{" _? inner:list_len_binding_inner() _? "}" { inner }
+        rule list_len_binding_inner() -> ListLenBinding
+            = name:ident() { ListLenBinding::ToName(name.to_owned()) }
+            / min:int() "+" { ListLenBinding::Min(min as _) }
 
         rule named_binding() -> Binding
             = name:ident() _? "@" _? "(" _? binding:binding() _? ")" {
