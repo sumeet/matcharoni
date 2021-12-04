@@ -8,6 +8,11 @@ const TEST_PROGGY: &str = r#"
 69
 if 1: 1
 if 2: 1 else: 2
+
+pat bin {
+  '0' => 0,
+  '1' => 1
+}
 "#;
 
 fn main() -> anyhow::Result<()> {

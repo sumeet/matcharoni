@@ -1,4 +1,5 @@
 use litrs::CharLit;
+use std::ops::Range;
 
 pub use parser::program as parse_program;
 
@@ -27,7 +28,16 @@ pub struct Match {
 
 #[derive(Debug)]
 pub enum Binding {
-    Expr,
+    Char(char),
+    Concat(Box<Binding>, Box<Binding>),
+    ListOf(Box<Binding>, Option<ListLenBinding>),
+    Named(String, Box<Binding>),
+}
+
+#[derive(Debug)]
+pub enum ListLenBinding {
+    Min(usize),
+    ToName(String),
 }
 
 #[derive(Debug)]
@@ -53,11 +63,28 @@ peg::parser! {
         rule statement_with_whitespace() -> Statement
             = _* statement:statement() _* { statement }
         rule statement() -> Statement
-            = expr_statement()
-        rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
+            = expr_statement() / pat_def_statement()
 
+        rule pat_def_statement() -> Statement
+            = pat_def:pat_def() { Statement::PatDef(pat_def) }
+
+        rule pat_def() -> PatDef
+            = "pat" _? name:ident() _? "{" _ matches:(match() ** comma()) _? "}" {
+                PatDef { name: name.to_owned(), matches }
+            }
+
+        rule match() -> Match
+            = binding:binding() _? "=>" _? expr:expr() { Match { binding, expr } }
+
+        rule binding() -> Binding
+            = char_binding() // concat_binding() / list_binding() / named_binding()
+
+        rule char_binding() -> Binding
+            = char:char_lit() { Binding::Char(char) }
+
+        rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
         rule expr() -> Expr
-            = char_literal() / int_literal() / if_else_expr() / if_no_else_expr() / while_expr()
+            = char_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() / while_expr()
 
         rule while_expr() -> Expr
             = "while" _ cond:expr() _? ":" _? then:expr() {
@@ -73,13 +100,14 @@ peg::parser! {
                 Expr::If(Box::new(Conditional { cond, then, r#else: None }))
             }
 
-        rule char_literal() -> Expr
-            = char:$("'" "\\"? [_] "'") {?
-                let ch = CharLit::parse(char).or_else(|e| { dbg!(e) ; Err("char_literal: " ) })?;
-                Ok(Expr::CharLiteral(ch.value()))
-            }
-        rule int_literal() -> Expr = int:int() { Expr::IntLiteral(int) }
+        rule char_literal_expr() -> Expr
+            = char:char_lit() { Expr::CharLiteral(char) }
+        rule int_literal_expr() -> Expr = int:int() { Expr::IntLiteral(int) }
 
+        rule char_lit() -> char
+            = char:$("'" "\\"? [_] "'") {?
+                Ok(CharLit::parse(char).or_else(|e| { dbg!(e) ; Err("char_lit: " ) })?.value())
+            }
         rule int() -> i128
             = int:$("0" / "-"? ['1' ..= '9']+ ['0' ..= '9']*) {? int.parse().or(Err("not a number")) }
         rule ident() -> &'input str = $(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
