@@ -46,6 +46,7 @@ pub enum Expr {
     IntLiteral(i128),
     If(Box<Conditional>),
     While(Box<Conditional>),
+    Ref(String),
 }
 
 #[derive(Debug)]
@@ -63,7 +64,7 @@ peg::parser! {
         rule statement_with_whitespace() -> Statement
             = _* statement:statement() _* { statement }
         rule statement() -> Statement
-            = expr_statement() / pat_def_statement()
+            = pat_def_statement() / expr_statement()
 
         rule pat_def_statement() -> Statement
             = pat_def:pat_def() { Statement::PatDef(pat_def) }
@@ -84,13 +85,17 @@ peg::parser! {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
         rule scalar_binding() -> Binding
-            = char_binding() // list_binding() / named_binding()
+            = named_binding() / char_binding() // list_binding()
+        rule named_binding() -> Binding
+            = name:ident() _? "@" _? "(" _? binding:binding() _? ")" {
+                Binding::Named(name.to_owned(), Box::new(binding))
+            }
         rule char_binding() -> Binding
             = char:char_lit() { Binding::Char(char) }
 
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
         rule expr() -> Expr
-            = char_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() / while_expr()
+            = char_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() / while_expr() / ref_expr()
 
         rule while_expr() -> Expr
             = "while" _ cond:expr() _? ":" _? then:expr() {
@@ -106,6 +111,8 @@ peg::parser! {
                 Expr::If(Box::new(Conditional { cond, then, r#else: None }))
             }
 
+        rule ref_expr() -> Expr
+            = name:ident() { Expr::Ref(name.to_owned()) }
         rule char_literal_expr() -> Expr
             = char:char_lit() { Expr::CharLiteral(char) }
         rule int_literal_expr() -> Expr = int:int() { Expr::IntLiteral(int) }
