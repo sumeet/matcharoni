@@ -1,0 +1,52 @@
+--- syntax ---
+expr { begin..end } => {
+  ns = []
+  while begin < end {
+    push(ns, begin)
+    begin += 1
+  } else while (end > begin) {
+    push(ns, begin)
+    begin -= 1
+  }
+}
+
+expr { [obj@(?)]{1} * n@(&Int) } => {
+  xs = []
+  for 0..n { push(xs, obj) }
+  xs
+}
+
+// TODO: error if wrong number of bindings in list
+bind { xs@([($n ~ ",")]) } => {
+  $n = xs[#xs]
+}
+--- taxnys ---
+
+pat bin { '0' => 0, '1' => 1 }
+pat line { bins@([bin]{1+}) ~ '\n' => bins }
+pat lines { [line]{num_lines} => [[#line, line], num_lines] }
+
+pat bin_le_to_int {
+  bits@([&Int]{len}) => {
+    sum = 0
+    factor = 1
+    while len >= 0 {
+      len  = len - 1
+      sum = sum + (factor * bits[len])
+      factor = factor * 8
+    }
+    sum
+  }
+}
+
+
+input = read_to_string "./input"
+(readings, num_lines) = lines(input)
+
+pat calc_most_commons { [sum@(&Int)] => (sum / 2) > (num_lines / 2) }
+pat calc_most_commons { [sum@(&Int)] => (sum / 2) < (num_lines / 2) }
+
+sums = [0] * len(first(readings))
+for [n, bit] <- readings {
+ sums[n] = sums[n] + bit 
+}
