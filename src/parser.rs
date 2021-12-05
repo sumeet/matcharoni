@@ -62,7 +62,7 @@ pub enum Expr {
     Assignment(String, Box<Expr>),
     ListComprehension { list: Box<Expr>, over: Box<Expr> },
     ListLiteral(Vec<Expr>),
-    CallPat(Box<Expr>, Vec<Expr>),
+    CallPat(Box<Expr>, Box<Expr>),
     Range(Box<Expr>, Box<Expr>),
     BinOp(Box<Expr>, Op, Box<Expr>),
 }
@@ -205,8 +205,8 @@ peg::parser! {
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
-            = name:ident() _? "(" _? args:(expr() ** comma()) _? ")" {
-                Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), args)
+            = name:ident() _? arg:expr() {
+                Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), Box::new(arg))
             }
 
         rule list_comprehension_expr() -> Expr

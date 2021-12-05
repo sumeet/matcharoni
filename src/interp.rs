@@ -110,13 +110,13 @@ impl Interpreter {
                     .map(|e| self.eval_expr(e))
                     .collect::<anyhow::Result<Vec<Value>>>()?,
             ),
-            Expr::CallPat(get_pat, args) => self.eval_call_pat(get_pat, args)?,
+            Expr::CallPat(get_pat, arg) => self.eval_call_pat(get_pat, arg)?,
             Expr::Range(low, high) => self.eval_range(low, high)?,
             Expr::BinOp(lhs, op, rhs) => self.eval_bin_op(lhs, *op, rhs)?,
         })
     }
 
-    fn eval_call_pat(&mut self, get_pat: &Expr, args: &[Expr]) -> anyhow::Result<Value> {
+    fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Value> {
         self.push_block_scope();
         let pat = self.eval_expr(get_pat)?.as_pattern()?;
         self.pop_scope();
