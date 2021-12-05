@@ -104,6 +104,12 @@ impl Interpreter {
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
             Expr::ListComprehension { list, over } => self.eval_list_comp(list, over)?,
+            Expr::TupleLiteral(exprs) => Value::Tuple(
+                exprs
+                    .iter()
+                    .map(|e| self.eval_expr(e))
+                    .collect::<anyhow::Result<Vec<Value>>>()?,
+            ),
             Expr::ListLiteral(exprs) => Value::List(
                 exprs
                     .iter()
@@ -266,6 +272,7 @@ impl Interpreter {
 pub enum Value {
     Void,
     Char(char),
+    Tuple(Vec<Value>),
     List(Vec<Value>),
     Int(i128),
     Pattern(Pattern),

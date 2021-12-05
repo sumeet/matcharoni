@@ -52,6 +52,7 @@ pub enum Expr {
     CharLiteral(char),
     StringLiteral(String),
     IntLiteral(i128),
+    TupleLiteral(Vec<Expr>),
     If(Box<Conditional>),
     While(Box<Conditional>),
     ListCompEl(String),
@@ -197,11 +198,14 @@ peg::parser! {
             }
 
         rule scalar_expr() -> Expr
-            = (parens_expr() / call_pat_expr() / char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
-               length_expr() / ref_expr())
+            = (parens_expr() / tuple_expr() / call_pat_expr() / char_literal_expr() /
+               int_literal_expr() / this_el_expr() / index_expr() / length_expr() / ref_expr())
 
         rule parens_expr() -> Expr
             = "(" _? expr:expr() _? ")" { expr }
+
+        rule tuple_expr() -> Expr
+            = "(" _? exprs:(expr() ** comma()) _? ")" { Expr::TupleLiteral(exprs) }
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
