@@ -14,19 +14,19 @@ pub enum Statement {
     Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PatDef {
     pub name: String,
     pub matches: Vec<Match>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Match {
-    binding: Binding,
-    expr: Expr,
+    pub binding: Binding,
+    pub expr: Expr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Binding {
     Char(char),
     Concat(Box<Binding>, Box<Binding>),
@@ -40,13 +40,13 @@ pub enum Binding {
     Anything,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ListLenBinding {
     Min(usize),
     ToName(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Comment(String),
     CharLiteral(char),
@@ -68,7 +68,7 @@ pub enum Expr {
     BinOp(Box<Expr>, Op, Box<Expr>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Add,
     Sub,
@@ -86,7 +86,7 @@ pub enum Op {
     Shl,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Conditional {
     pub cond: Expr,
     pub then: Expr,

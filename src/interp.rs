@@ -1,5 +1,5 @@
 use crate::parser;
-use crate::parser::{Conditional, Expr, Op, Statement};
+use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, Statement};
 use anyhow::bail;
 use std::collections::HashMap;
 
@@ -268,7 +268,7 @@ impl Interpreter {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Void,
     Char(char),
@@ -278,14 +278,117 @@ pub enum Value {
     Pattern(Pattern),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pattern(parser::PatDef);
+
+struct MatchedPattern {
+    bindings: Vec<(String, Value)>,
+    expr: Expr,
+}
+
+impl Pattern {
+    fn match_val(&self, val: Value) -> Option<MatchedPattern> {
+        for match_arm in &self.0.matches {
+            match &match_arm.binding {
+                Binding::Char(c) => {
+                    if matches!(Value::Char(*c), val) {
+                        return Some(MatchedPattern {
+                            bindings: vec![],
+                            expr: match_arm.expr.clone(),
+                        });
+                    }
+                }
+                Binding::Concat(left, right) => {
+                    if let Value::List(list) = val {
+                        todo!()
+                    }
+                }
+                Binding::ListOf(_, _) => {}
+                Binding::Tuple(_) => {}
+                Binding::Named(_, _) => {}
+                Binding::Type(_) => {}
+                Binding::Ref(_) => {}
+                Binding::Anything => {}
+            }
+        }
+        None
+    }
+}
+
+struct Match {
+    value: Value,
+    name: String,
+}
+
+// TODO: maybe this could work with iterators?
+// returns the remaining unmatched list if any
+fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>, Vec<Value>)> {
+    match binding {
+        Binding::Char(c) => {
+            let val = vals.first()?;
+            if matches!(Value::Char(*c), val) {
+                Some((vec![Value::Char(*c)], vals[1..].to_vec()))
+            } else {
+                None
+            }
+        }
+        Binding::Concat(left, right) => {
+            let (mut left_matched, rest) = match_list(vals, left)?;
+            let (right_matched, rest) = match_list(rest, right)?;
+            left_matched.extend_from_slice(&right_matched);
+            Some((left_matched, rest))
+        }
+        Binding::ListOf(binding, len_binding) => {
+            let mut matched = vec![];
+            let mut rest = vals;
+            if let Some(ListLenBinding::Min(min)) = len_binding {
+                for _ in 0..*min {
+                    let (inner_match, inner_rest) = match_list(rest, binding)?;
+                    matched.extend(inner_match);
+                    rest = inner_rest;
+                }
+            }
+            while let Some((inner_match, inner_rest)) = match_list(rest.clone(), binding) {
+                matched.extend(inner_match);
+                rest = inner_rest;
+            }
+            if !matched.is_empty() {
+                Some((matched, rest))
+            } else {
+                None
+            }
+        }
+        Binding::Tuple(bindings) => {
+            let mut matched = vec![];
+            let mut rest = vals;
+            for binding in bindings {
+                let (inner_match, inner_rest) = match_list(rest, binding)?;
+                matched.extend(inner_match);
+                rest = inner_rest;
+            }
+            Some((matched, rest))
+        }
+        Binding::Anything => vals
+            .split_first()
+            .map(|(first, rest)| (vec![first.clone()], rest.to_vec())),
+        Binding::Ref(_) => unreachable!("ref should have been replaced upstream"),
+        Binding::Named(_, _) => todo!(),
+        Binding::Type(_) => unimplemented!("no support for types yet"),
+    }
+}
 
 impl Value {
     fn as_pattern(&self) -> anyhow::Result<&Pattern> {
         match self {
             Value::Pattern(p) => Ok(p),
             _ => Err(anyhow::anyhow!("not a pattern")),
+        }
+    }
+
+    fn as_char(&self) -> anyhow::Result<char> {
+        match self {
+            Value::Char(c) => Ok(*c),
+            _ => Err(anyhow::anyhow!("not a char")),
         }
     }
 

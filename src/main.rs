@@ -1,3 +1,5 @@
+#![feature(destructuring_assignment)]
+
 mod interp;
 mod parser;
 
@@ -13,7 +15,7 @@ pat line { [bins@bin]{1+} ~ '\n' => bins }
 pat lines { [lines@line] => lines }
 
 pat bin_le_to_int { [bits@Int] => {
-  sum([(*bits << (#bits - %bits)) <- bits])
+  sum [(*bits << (#bits - %bits)) <- bits]
 }}
 
 
