@@ -16,8 +16,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone)]
 pub struct PatDef {
-    name: String,
-    matches: Vec<Match>,
+    pub name: String,
+    pub matches: Vec<Match>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,20 +54,20 @@ pub enum Expr {
     IntLiteral(i128),
     If(Box<Conditional>),
     While(Box<Conditional>),
-    ThisEl(String),
-    Index(String),
+    ListCompEl(String),
+    ListCompIndex(String),
     Length(Box<Expr>),
     Ref(String),
     Block(Vec<Expr>),
     Assignment(String, Box<Expr>),
-    ListComprehension { expr: Box<Expr>, over: Box<Expr> },
+    ListComprehension { list: Box<Expr>, over: Box<Expr> },
     ListLiteral(Vec<Expr>),
-    FuncCall(Box<Expr>, Vec<Expr>),
+    CallPat(Box<Expr>, Vec<Expr>),
     Range(Box<Expr>, Box<Expr>),
     BinOp(Box<Expr>, Op, Box<Expr>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Op {
     Add,
     Sub,
@@ -87,9 +87,9 @@ pub enum Op {
 
 #[derive(Debug, Clone)]
 pub struct Conditional {
-    cond: Expr,
-    then: Expr,
-    r#else: Option<Expr>,
+    pub cond: Expr,
+    pub then: Expr,
+    pub r#else: Option<Expr>,
 }
 
 peg::parser! {
@@ -197,21 +197,21 @@ peg::parser! {
             }
 
         rule scalar_expr() -> Expr
-            = (parens_expr() / func_call_expr() / char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
+            = (parens_expr() / call_pat_expr() / char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
                length_expr() / ref_expr())
 
         rule parens_expr() -> Expr
             = "(" _? expr:expr() _? ")" { expr }
 
         // TODO: can we () call any expr instead of only names?
-        rule func_call_expr() -> Expr
+        rule call_pat_expr() -> Expr
             = name:ident() _? "(" _? args:(expr() ** comma()) _? ")" {
-                Expr::FuncCall(Box::new(Expr::Ref(name.to_owned())), args)
+                Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), args)
             }
 
         rule list_comprehension_expr() -> Expr
-            = "[" _? expr:expr() _? "<-" _? over:expr() _? "]" {
-                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
+            = "[" _? list:expr() _? "<-" _? over:expr() _? "]" {
+                Expr::ListComprehension { list: Box::new(list), over: Box::new(over) }
             }
 
         rule list_literal_expr() -> Expr
@@ -237,9 +237,9 @@ peg::parser! {
             }
 
         rule this_el_expr() -> Expr
-            = "*" ident:ident() { Expr::ThisEl(ident.to_owned()) }
+            = "*" ident:ident() { Expr::ListCompEl(ident.to_owned()) }
         rule index_expr() -> Expr
-            = "%" ident:ident() { Expr::Index(ident.to_owned()) }
+            = "%" ident:ident() { Expr::ListCompIndex(ident.to_owned()) }
         rule length_expr() -> Expr
             = "#" expr:expr() { Expr::Length(Box::new(expr)) }
         rule ref_expr() -> Expr

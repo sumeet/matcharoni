@@ -1,3 +1,4 @@
+mod interp;
 mod parser;
 
 const TEST_PROGGY: &str = r#"
