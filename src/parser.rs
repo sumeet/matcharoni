@@ -12,7 +12,6 @@ pub struct Program {
 pub enum Statement {
     PatDef(PatDef),
     Expr(Expr),
-    Comment(String),
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +48,7 @@ pub enum ListLenBinding {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+    Comment(String),
     CharLiteral(char),
     StringLiteral(String),
     IntLiteral(i128),
@@ -64,6 +64,25 @@ pub enum Expr {
     ListLiteral(Vec<Expr>),
     FuncCall(Box<Expr>, Vec<Expr>),
     Range(Box<Expr>, Box<Expr>),
+    BinOp(Box<Expr>, Op, Box<Expr>),
+}
+
+#[derive(Debug, Clone)]
+pub enum Op {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Lte,
+    Gte,
+    And,
+    Or,
+    Pow,
+    Shl,
 }
 
 #[derive(Debug, Clone)]
@@ -81,11 +100,11 @@ peg::parser! {
         rule statement_with_whitespace() -> Statement
             = _* statement:statement() _* { statement }
         rule statement() -> Statement
-            = pat_def_statement() / expr_statement() / comment_statement()
+            = pat_def_statement() / expr_statement()
 
 
-        rule comment_statement() -> Statement
-            = comment:comment_string() { Statement::Comment(comment) }
+        rule comment_expr() -> Expr
+            = comment:comment_string() { Expr::Comment(comment) }
         rule comment_string() -> String
             = "/" "/" onespace()? body:$([^ '\r' | '\n']*)? following:following_comment()*  {
                 body.map(|b| b.to_owned()).into_iter().chain(following.into_iter()).join("\n")
@@ -157,9 +176,20 @@ peg::parser! {
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
 
         rule expr() -> Expr
-            = (range_expr() / func_call_expr() / assignment_expr() / list_comprehension_expr() /
+            = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() / list_comprehension_expr() /
                list_literal_expr() / string_literal_expr() / if_else_expr() / if_no_else_expr() /
                while_expr() / scalar_expr() / this_el_expr() / block_expr())
+
+        rule bin_op_expr() -> Expr
+            = left:scalar_expr() _? op:op() _? right:scalar_expr() {
+                Expr::BinOp(Box::new(left), op, Box::new(right))
+            }
+
+        rule op() -> Op
+            = ("+" { Op::Add } / "/" { Op::Div } / "-" { Op::Sub } / "*" { Op::Mul } /
+               "**" { Op::Pow } / "==" { Op::Eq } / "!=" { Op::Neq } / ">" { Op::Gt } /
+               "<<" { Op::Shl } / "<" { Op::Lt } / ">=" { Op::Gte } / "<=" { Op::Lte } /
+               "&&" { Op::And } / "||" { Op::Or })
 
         rule range_expr() -> Expr
             = start:scalar_expr() _? ".." _? end:scalar_expr() {
@@ -167,8 +197,11 @@ peg::parser! {
             }
 
         rule scalar_expr() -> Expr
-            = (char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
+            = (parens_expr() / func_call_expr() / char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
                length_expr() / ref_expr())
+
+        rule parens_expr() -> Expr
+            = "(" _? expr:expr() _? ")" { expr }
 
         // TODO: can we () call any expr instead of only names?
         rule func_call_expr() -> Expr
