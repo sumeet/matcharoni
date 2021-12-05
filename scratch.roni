@@ -1,62 +1,27 @@
---- syntax ---
-expr { begin..end } => {
-  ns = []
-  while begin < end {
-    push(ns, begin)
-    begin += 1
-  } else while (end > begin) {
-    push(ns, begin)
-    begin -= 1
-  }
-}
-
-expr { [obj@(?)]{1} * n@(&Int) } => {
-  xs = []
-  for 0..n { push(xs, obj) }
-  xs
-}
-
 // TODO: error if wrong number of bindings in list
-bind { xs@([($n ~ ",")]) } => {
-  $n = xs[#xs]
-}
---- taxnys ---
+// TODO: not going to use bind for now
+// bind { xs@([$names]) } => [*$names = xs[#$names] <- $names]
 
-pat enumerate { xs@[ANY]{num_lines} => {
-  ixs = []
-  // TODO: for loop
-  i = 0
-  while i < num_lines: {
-    ixs.push([i, xs(i)])
-    i += 1 
-  }
-  ixs
-}}
 pat bin { '0' => 0, '1' => 1 }
-pat line { bins@([bin]{1+}) ~ '\n' => bins }
-pat lines { lines@([line]{num_lines}) => [enumerate(lines), num_lines] }
+pat line { [bins@bin]{1+}... ~ '\n' => bins }
+pat lines { [lines@line]... => lines }
 
-pat bin_le_to_int {
-  bits@([&Int]{len}) => {
-    sum = 0
-    factor = 1
-    while len >= 0 {
-      len  = len - 1
-      sum = sum + (factor * bits[len])
-      factor = factor * 8
-    }
-    sum
-  }
-}
+pat bin_le_to_int { [bits@Int] => {
+    sum([shl(#bits - %bits, *bits) <- bits])
+}}
 
 
 input = read_to_string("./input")
-[readings, num_lines] = lines(input)
+readings = lines(input)
 
-pat calc_most_commons { [sum@(&Int)] => (sum / 2) > (num_lines / 2) }
-pat calc_most_commons { [sum@(&Int)] => (sum / 2) < (num_lines / 2) }
+pat expand { (x@Any, n@Int) => { [x <- 0..n] } }
 
-sums = [0] * len(first(readings))
-for [n, bit] <- readings {
- sums[n] = sums[n] + bit 
-}
+pat calc_most_commons { [sums@Int] => 
+  [(*sums / 2) > (#readings / 2) <- sums]
+}}
+
+pat calc_least_commons { [sums@Int] => 
+  [(*sums / 2) < (#readings / 2) <- sums]
+}}
+
+sums = expand(0, len(readings(0)))

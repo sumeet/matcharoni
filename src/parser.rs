@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use litrs::{CharLit, StringLit};
 
 pub use parser::program as parse_program;
@@ -11,6 +12,7 @@ pub struct Program {
 pub enum Statement {
     PatDef(PatDef),
     Expr(Expr),
+    Comment(String),
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +51,9 @@ pub enum Expr {
     IntLiteral(i128),
     If(Box<Conditional>),
     While(Box<Conditional>),
+    ThisEl(String),
+    Index(String),
+    Length(Box<Expr>),
     Ref(String),
     Block(Vec<Expr>),
     Assignment(String, Box<Expr>),
@@ -71,7 +76,25 @@ peg::parser! {
         rule statement_with_whitespace() -> Statement
             = _* statement:statement() _* { statement }
         rule statement() -> Statement
-            = pat_def_statement() / expr_statement()
+            = pat_def_statement() / expr_statement() / comment_statement()
+
+
+        rule comment_statement() -> Statement
+            = comment:comment_string() { Statement::Comment(comment) }
+        rule comment_string() -> String
+            = "/" "/" onespace()? body:$([^ '\r' | '\n']*)? following:following_comment()*  {
+                body.map(|b| b.to_owned()).into_iter().chain(following.into_iter()).join("\n")
+            }
+        rule following_comment() -> String
+            = newline() c:comment_string() {
+                if c.starts_with("//") {
+                    let c = c.trim_start_matches("//");
+                    let c = c.strip_prefix(' ').unwrap_or(c);
+                    format!("\n{}", c)
+                } else {
+                    c
+                }
+            }
 
         rule pat_def_statement() -> Statement
             = pat_def:pat_def() { Statement::PatDef(pat_def) }
@@ -92,7 +115,10 @@ peg::parser! {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
         rule scalar_binding() -> Binding
-            = named_binding() / char_binding() / list_binding() / any_binding() / ref_binding()
+            = named_binding() / char_binding() / binding_in_parens() / list_binding() / any_binding() / ref_binding()
+
+        rule binding_in_parens() -> Binding
+            = "(" _? binding:binding() _? ")" { binding }
 
         rule list_binding() -> Binding
             = "[" _? binding:binding() _? "]" _? len:list_len_binding()? {
@@ -105,7 +131,7 @@ peg::parser! {
             / min:int() "+" { ListLenBinding::Min(min as _) }
 
         rule named_binding() -> Binding
-            = name:ident() _? "@" _? "(" _? binding:binding() _? ")" {
+            = name:ident() _? "@" _? binding:binding() {
                 Binding::Named(name.to_owned(), Box::new(binding))
             }
         rule char_binding() -> Binding
@@ -119,7 +145,7 @@ peg::parser! {
         rule expr() -> Expr
             = (func_call_expr() / assignment_expr() / list_literal_expr() / char_literal_expr() /
                string_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() /
-               while_expr() / ref_expr() / block_expr())
+               while_expr() / this_el_expr() / index_expr() / length_expr() / ref_expr() / block_expr())
 
         // TODO: can we () call any expr instead of only names?
         rule func_call_expr() -> Expr
@@ -136,21 +162,27 @@ peg::parser! {
             = "{" _? exprs:(expr() ** whitespace()) _? "}" { Expr::Block(exprs) }
 
         rule while_expr() -> Expr
-            = "while" _ cond:expr() _? ":" _? then:expr() {
+            = "while" _ cond:expr() _? then:expr() {
                 Expr::While(Box::new(Conditional { cond, then, r#else: None }))
             }
 
         rule if_else_expr() -> Expr
-            = "if" _ cond:expr() _? ":" _? then:expr() _ "else:" _? r#else:expr() {
+            = "if" _ cond:expr() _? then:expr() _? r#else:expr() {
                 Expr::If(Box::new(Conditional { cond, then, r#else: Some(r#else) }))
             }
         rule if_no_else_expr() -> Expr
-            = "if" _ cond:expr() _? ":" _? then:expr() {
+            = "if" _ cond:expr() _? then:expr() {
                 Expr::If(Box::new(Conditional { cond, then, r#else: None }))
             }
 
+        rule this_el_expr() -> Expr
+            = "*" ident:ident() { Expr::ThisEl(ident.to_owned()) }
+        rule index_expr() -> Expr
+            = "%" ident:ident() { Expr::Index(ident.to_owned()) }
+        rule length_expr() -> Expr
+            = "#" expr:expr() { Expr::Length(Box::new(expr)) }
         rule ref_expr() -> Expr
-            = name:$("#"? ident()) { Expr::Ref(name.to_owned()) }
+            = name:ident() { Expr::Ref(name.to_owned()) }
         rule char_literal_expr() -> Expr
             = char_lit:char_lit() { Expr::CharLiteral(char_lit) }
         rule string_literal_expr() -> Expr

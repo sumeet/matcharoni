@@ -10,3 +10,4 @@ peg = { git = "https://github.com/kevinmehall/rust-peg.git" }
 #peg = "*"
 litrs = "*"
 anyhow = "*"
+itertools = "*"

@@ -22,6 +22,7 @@ syntax region roniCommentLine start="//" end="$"   contains=roniTodos
 
 syntax match roniSpecial		"[#$&][a-z_][a-z0-9_]*\>"
 syntax match roniIdent		"\<[a-z_][a-z0-9_]*\>"
+syntax match roniType		"\<[A-Z_][a-z0-9_]*\>"
 
 " Numbers
 syntax match roniDecInt display "\<[0-9][0-9_]*"
@@ -37,6 +38,7 @@ syntax match roniFunction display "\<[a-z_][a-z0-9_]*\>("he=e-1
 " syntax region roniString start=/\v'/ skip=/\v\\./ end=/\v'/
 
 " Set highlights
+highlight default link roniType Type
 highlight default link roniTodos Todo
 highlight default link roniKeywords Keyword
 " comments are highlighted as strings in this lang
