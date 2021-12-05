@@ -32,7 +32,10 @@ pub enum Binding {
     Char(char),
     Concat(Box<Binding>, Box<Binding>),
     ListOf(Box<Binding>, Option<ListLenBinding>),
+    Tuple(Vec<Binding>),
     Named(String, Box<Binding>),
+    // TODO: ignoring types for now
+    Type(String),
     // TODO: should this be an Expr and not only a Ref?
     Ref(String),
     Anything,
@@ -57,8 +60,10 @@ pub enum Expr {
     Ref(String),
     Block(Vec<Expr>),
     Assignment(String, Box<Expr>),
+    ListComprehension { expr: Box<Expr>, over: Box<Expr> },
     ListLiteral(Vec<Expr>),
     FuncCall(Box<Expr>, Vec<Expr>),
+    Range(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -114,9 +119,15 @@ peg::parser! {
             = binding1:scalar_binding() _? "~" _? binding2:scalar_binding() {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
-        rule scalar_binding() -> Binding
-            = named_binding() / char_binding() / binding_in_parens() / list_binding() / any_binding() / ref_binding()
 
+        rule scalar_binding() -> Binding
+            = (named_binding() / char_binding() / tuple_binding() / binding_in_parens() / list_binding() /
+               any_binding() / type_binding() / ref_binding())
+
+        rule tuple_binding() -> Binding
+            = "(" _? bindings:(binding() ** comma()) _? ")" {
+                Binding::Tuple(bindings)
+            }
         rule binding_in_parens() -> Binding
             = "(" _? binding:binding() _? ")" { binding }
 
@@ -138,19 +149,36 @@ peg::parser! {
             = char:char_lit() { Binding::Char(char) }
         rule any_binding() -> Binding
             = "ANY" { Binding::Anything }
+        rule type_binding() -> Binding
+            = name:type_ident() { Binding::Type(name.to_owned()) }
         rule ref_binding() -> Binding
             = name:ident() { Binding::Ref(name.to_owned()) }
 
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
+
         rule expr() -> Expr
-            = (func_call_expr() / assignment_expr() / list_literal_expr() / char_literal_expr() /
-               string_literal_expr() / int_literal_expr() / if_else_expr() / if_no_else_expr() /
-               while_expr() / this_el_expr() / index_expr() / length_expr() / ref_expr() / block_expr())
+            = (range_expr() / func_call_expr() / assignment_expr() / list_comprehension_expr() /
+               list_literal_expr() / string_literal_expr() / if_else_expr() / if_no_else_expr() /
+               while_expr() / scalar_expr() / this_el_expr() / block_expr())
+
+        rule range_expr() -> Expr
+            = start:scalar_expr() _? ".." _? end:scalar_expr() {
+                Expr::Range(Box::new(start), Box::new(end))
+            }
+
+        rule scalar_expr() -> Expr
+            = (char_literal_expr() / int_literal_expr() / this_el_expr() / index_expr() /
+               length_expr() / ref_expr())
 
         // TODO: can we () call any expr instead of only names?
         rule func_call_expr() -> Expr
             = name:ident() _? "(" _? args:(expr() ** comma()) _? ")" {
                 Expr::FuncCall(Box::new(Expr::Ref(name.to_owned())), args)
+            }
+
+        rule list_comprehension_expr() -> Expr
+            = "[" _? expr:expr() _? "<-" _? over:expr() _? "]" {
+                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
             }
 
         rule list_literal_expr() -> Expr
@@ -199,8 +227,10 @@ peg::parser! {
             }
         rule int() -> i128
             = int:$("0" / "-"? ['1' ..= '9']+ ['0' ..= '9']*) {? int.parse().or(Err("not a number")) }
+        rule type_ident() -> &'input str = $(type_ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
+        rule type_ident_start() -> &'input str = $(['A'..='Z' | '_']+)
         rule ident() -> &'input str = $(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
-        rule ident_start() -> &'input str = $(['a'..='z' | 'A'..='Z' | '_']+)
+        rule ident_start() -> &'input str = $(['a'..='z' | '_']+)
         rule comma() -> () = _? "," _?
         rule nbspace() = onespace()+
         rule onespace() = [' ' | '\t']

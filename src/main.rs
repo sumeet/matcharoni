@@ -12,15 +12,15 @@ pat line { [bins@bin]{1+} ~ '\n' => bins }
 pat lines { [lines@line] => lines }
 
 pat bin_le_to_int { [bits@Int] => {
-    sum([shl(sub(#bits, %bits)), *bits) <- bits])
+    sum([shl(sub(#bits, %bits), *bits) <- bits])
 }}
-//
-//
-//input = read_to_string("./input")
-//readings = lines(input)
-//
-//pat expand { (x@Any, n@Int) => { [x <- 0..n] } }
-//
+
+
+input = read_to_string("./input")
+readings = lines(input)
+
+pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
+
 //pat calc_most_commons { [sums@Int] => 
 //  [(*sums / 2) > (#readings / 2) <- sums]
 //}}
