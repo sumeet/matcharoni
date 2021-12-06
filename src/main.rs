@@ -12,9 +12,6 @@ pat bin { '0' => 0, '1' => 1 }
 pat reading { bins@[bin]{1+} ~ '\n' => bins }
 pat readings { lines@[reading] => lines }
 
-input = read_to_string("./input")
-readings = readings(input)
-
 pat expand { (x@ANY, n@ANY) => { [x <- 0..n] } }
 pat calc_most_commons { [sums@ANY] =>  {
   [(*sums / 2) < (#readings / 2) <- sums]
@@ -26,11 +23,12 @@ pat bin_le_to_int { [bits@ANY] => {
   sum [(*bits << (#bits - %bits)) <- bits]
 }}
 
+input = read_to_string("./sample")
+readings = readings(input)
 sums = expand(0, #(readings(0)))
-for reading <- readings {
-  for bit <- bits {
-    sums[#bit] = sums[#bit] + bit
-  }
+
+for readings {
+  dbg(*readings)
 }
 "#;
 

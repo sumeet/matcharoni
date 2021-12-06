@@ -612,7 +612,7 @@ impl Value {
     fn as_pattern(&self) -> anyhow::Result<&dyn Pattern> {
         match self {
             Value::Pattern(p) => Ok(p.as_ref()),
-            _ => Err(anyhow::anyhow!("not a pattern")),
+            _ => Err(anyhow::anyhow!("{:?} is not a pattern", self)),
         }
     }
 

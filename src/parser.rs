@@ -186,7 +186,7 @@ peg::parser! {
         rule expr() -> Expr
             = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() / list_comprehension_expr() /
                list_literal_expr() / string_literal_expr() / if_else_expr() / if_no_else_expr() /
-               while_expr() / scalar_expr() / this_el_expr() / block_expr())
+               for_expr() / while_expr() / scalar_expr() / this_el_expr() / block_expr())
 
         rule bin_op_expr() -> Expr
             = left:scalar_expr() _? op:op() _? right:scalar_expr() {
@@ -216,7 +216,7 @@ peg::parser! {
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
-            = name:ident() _? arg:expr() {
+            = name:ident() _? "(" _? arg:expr() _? ")" {
                 Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), Box::new(arg))
             }
 
@@ -232,6 +232,11 @@ peg::parser! {
 
         rule block_expr() -> Expr
             = "{" _? exprs:(expr() ** whitespace()) _? "}" { Expr::Block(exprs) }
+
+        rule for_expr() -> Expr
+            = "for" _? over:expr() _? expr:block_expr() {
+                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
+            }
 
         rule while_expr() -> Expr
             = "while" _ cond:expr() _? then:expr() {
