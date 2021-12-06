@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 mod builtins;
-use itertools::Itertools;
 
 enum Scope {
     // should values be Rcd / Gcd?
@@ -323,6 +322,7 @@ impl Pattern for parser::PatDef {
     }
 }
 
+#[derive(Debug)]
 struct MatchedPattern {
     bindings: Vec<(String, Value)>,
     expr: Expr,
@@ -391,7 +391,7 @@ impl Match {
 fn match_binding(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -> Option<Match> {
     match binding {
         Binding::Char(c) => {
-            if matches!(Value::Char(*c), val) {
+            if Value::Char(*c) == val {
                 Some(Match::unnamed(val))
             } else {
                 None
@@ -442,7 +442,15 @@ fn match_binding(interp: &mut Interpreter, val: Value, binding: &parser::Binding
             let pat = pat
                 .as_pattern()
                 .unwrap_or_else(|_| panic!("ref {} is not a pattern", name));
-            Some(Match::unnamed(pat.eval(interp, val).unwrap()))
+
+            let evalled = pat.eval(interp, val);
+            match evalled {
+                Err(err) => {
+                    println!("warning: {}", err);
+                    None
+                }
+                Ok(val) => Some(Match::unnamed(val)),
+            }
         }
     }
 }
@@ -468,28 +476,27 @@ fn match_list(
             }
         }
         Binding::Concat(left, right) => {
-            let (mut left_matched, rest) = match_list(interp, vals.clone(), left)?;
+            let (left_matched, rest) = match_list(interp, vals.clone(), left)?;
             let (right_matched, rest) = match_list(interp, rest, right)?;
             let this_match = Match::unnamed(Value::List(vals))
                 .with_inner_matches(vec![left_matched, right_matched]);
             Some((this_match, rest))
         }
         Binding::ListOf(binding, len_binding) => {
-            let mut split_i = 0;
+            let mut matched = vec![];
             let mut rest = vals.clone();
             if let Some(ListLenBinding::Min(min)) = len_binding {
                 for _ in 0..*min {
-                    let (_, inner_rest) = match_list(interp, rest, binding)?;
-                    split_i += 1;
+                    let (inner_match, inner_rest) = match_list(interp, rest, binding)?;
+                    matched.push(inner_match.value);
                     rest = inner_rest;
                 }
             }
-            while let Some((_, inner_rest)) = match_list(interp, rest.clone(), binding) {
-                split_i += 1;
+            while let Some((inner_match, inner_rest)) = match_list(interp, rest.clone(), binding) {
+                matched.push(inner_match.value);
                 rest = inner_rest;
             }
-            let (vals, rest) = vals.split_at(split_i);
-            Some((Match::unnamed(Value::List(vals.to_vec())), rest.to_vec()))
+            Some((Match::unnamed(Value::List(matched)), rest))
         }
         Binding::Named(name, binding) => {
             match_list(interp, vals, binding).map(|(m, rest)| (m.add_name(name.to_owned()), rest))

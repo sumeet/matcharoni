@@ -10,9 +10,12 @@ const TEST_PROGGY: &str = r#"
 
 pat bin { '0' => 0, '1' => 1 }
 // TODO: might need flatten thing...
-pat line { [bins@bin]{1+} ~ '\n' => bins }
+
+pat reading { bins@([bin]{1+}) ~ '\n' => bins }
+pat lineNoNewline { bins@[bin]{1+} => bins }
+
 // TODO: might need flatten thing...
-pat lines { [lines@line] => lines }
+pat readings { lines@[reading] => lines }
 
 pat bin_le_to_int { [bits@Int] => {
   sum [(*bits << (#bits - %bits)) <- bits]
@@ -20,22 +23,22 @@ pat bin_le_to_int { [bits@Int] => {
 
 
 input = read_to_string("./input")
-//dbg(input(0))
-hoohaw = line "01000\n"
-dbg(hoohaw)
-//readings = lines(input)
 
-pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
+dbg(reading "111110\n")
 
-pat calc_most_commons { [sums@Int] =>  {
-  [(*sums / 2) < (#readings / 2) <- sums]
-}}
-
-pat calc_least_commons { [sums@Int] =>  {
-  [(*sums / 2) < (#readings / 2) <- sums]
-}}
-
-sums = expand(0, len(readings(0)))
+// //readings = lines(input)
+// 
+// pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
+// 
+// pat calc_most_commons { [sums@Int] =>  {
+//   [(*sums / 2) < (#readings / 2) <- sums]
+// }}
+// 
+// pat calc_least_commons { [sums@Int] =>  {
+//   [(*sums / 2) < (#readings / 2) <- sums]
+// }}
+// 
+// sums = expand(0, len(readings(0)))
 "#;
 
 fn main() -> anyhow::Result<()> {

@@ -142,7 +142,7 @@ peg::parser! {
             }
 
         rule scalar_binding() -> Binding
-            = (named_binding() / char_binding() / tuple_binding() / binding_in_parens() / list_binding() /
+            = (named_binding() / char_binding() / binding_in_parens() / tuple_binding() / list_binding() /
                any_binding() / type_binding() / ref_binding())
 
         rule tuple_binding() -> Binding
