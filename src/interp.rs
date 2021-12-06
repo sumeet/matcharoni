@@ -342,7 +342,7 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
             if let Value::List(vals) = &val {
                 if let Some((matched, rest)) = match_list(vals.clone(), binding) {
                     if rest.is_empty() {
-                        matched
+                        Some(matched)
                     } else {
                         None
                     }
@@ -383,7 +383,11 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
 // returns the remaining unmatched list if any
 fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec<Value>)> {
     match binding {
-        Binding::Anything | Binding::Ref(_) | Binding::Type(_) | Binding::Char(_) => {
+        Binding::Anything
+        | Binding::Ref(_)
+        | Binding::Type(_)
+        | Binding::Char(_)
+        | Binding::Tuple(_) => {
             let val = vals.first()?;
             if let Some(matched) = match_binding(val.clone(), binding) {
                 Some((matched, vals.into_iter().skip(1).collect()))
@@ -399,36 +403,25 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec
             Some((this_match, rest))
         }
         Binding::ListOf(binding, len_binding) => {
-            let mut matched = vec![];
-            let mut rest = vals;
+            let mut split_i = 0;
+            let mut rest = vals.clone();
             if let Some(ListLenBinding::Min(min)) = len_binding {
                 for _ in 0..*min {
-                    let (inner_match, inner_rest) = match_list(rest, binding)?;
-                    matched.extend(inner_match);
+                    let (_, inner_rest) = match_list(rest, binding)?;
+                    split_i += 1;
                     rest = inner_rest;
                 }
             }
-            while let Some((inner_match, inner_rest)) = match_list(rest.clone(), binding) {
-                matched.extend(inner_match);
+            while let Some((_, inner_rest)) = match_list(rest.clone(), binding) {
+                split_i += 1;
                 rest = inner_rest;
             }
-            if !matched.is_empty() {
-                Some((matched, rest))
-            } else {
-                None
-            }
+            let (vals, rest) = vals.split_at(split_i);
+            Some((Match::unnamed(Value::List(vals.to_vec())), rest.to_vec()))
         }
-        Binding::Tuple(bindings) => {
-            let mut matched = vec![];
-            let mut rest = vals;
-            for binding in bindings {
-                let (inner_match, inner_rest) = match_list(rest, binding)?;
-                matched.extend(inner_match);
-                rest = inner_rest;
-            }
-            Some((matched, rest))
+        Binding::Named(name, binding) => {
+            match_list(vals, binding).map(|(m, rest)| (m.add_name(name.to_owned()), rest))
         }
-        Binding::Named(_, _) => panic!("what to do when getting a named in here???????"),
     }
 }
 
