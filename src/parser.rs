@@ -1,3 +1,4 @@
+use dyn_partial_eq::DynPartialEq;
 use itertools::Itertools;
 use litrs::{CharLit, StringLit};
 
@@ -5,7 +6,7 @@ pub use parser::program as parse_program;
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    statements: Vec<Statement>,
+    pub statements: Vec<Statement>,
 }
 
 #[derive(Debug, Clone)]
@@ -14,7 +15,7 @@ pub enum Statement {
     Expr(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, DynPartialEq)]
 pub struct PatDef {
     pub name: String,
     pub matches: Vec<Match>,

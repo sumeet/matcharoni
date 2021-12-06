@@ -36,6 +36,10 @@ sums = expand(0, len(readings(0)))
 "#;
 
 fn main() -> anyhow::Result<()> {
-    dbg!(parser::parse_program(TEST_PROGGY)?);
+    let program = parser::parse_program(TEST_PROGGY)?;
+    let mut interp = interp::Interpreter::new();
+    for statement in &program.statements {
+        interp.eval_statement(statement)?;
+    }
     Ok(())
 }

@@ -1,7 +1,13 @@
 use crate::parser;
-use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, Statement};
+use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, PatDef, Statement};
 use anyhow::bail;
+use dyn_clone::DynClone;
+use dyn_partial_eq::*;
 use std::collections::HashMap;
+use std::fmt::Debug;
+
+mod builtins;
+use itertools::Itertools;
 
 enum Scope {
     // should values be Rcd / Gcd?
@@ -31,15 +37,23 @@ impl Scope {
     }
 }
 
-struct Interpreter {
+pub struct Interpreter {
     scope: Vec<Scope>,
 }
 
 impl Interpreter {
-    fn new() -> Self {
-        Interpreter {
+    pub fn new() -> Self {
+        let mut interp = Interpreter {
             scope: vec![Scope::new_block_scope()],
+        };
+        for (name, pattern) in builtins::builtins() {
+            interp
+                .this_scope()
+                .unwrap()
+                .set(name.to_owned(), Value::Pattern(pattern))
+                .unwrap();
         }
+        interp
     }
 
     fn push_list_comp_scope(&mut self, name: Option<String>, list: Vec<Value>) {
@@ -72,7 +86,7 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("No scope"))
     }
 
-    fn eval_statement(&mut self, statement: &Statement) -> anyhow::Result<()> {
+    pub(crate) fn eval_statement(&mut self, statement: &Statement) -> anyhow::Result<()> {
         match statement {
             Statement::PatDef(pat_def) => self.define_pattern(pat_def),
             Statement::Expr(expr) => {
@@ -85,7 +99,7 @@ impl Interpreter {
     fn define_pattern(&mut self, pat_def: &parser::PatDef) -> anyhow::Result<()> {
         self.this_scope()?.set(
             pat_def.name.clone(),
-            Value::Pattern(Pattern(pat_def.clone())),
+            Value::Pattern(Box::new(pat_def.clone())),
         )
     }
 
@@ -124,9 +138,11 @@ impl Interpreter {
 
     fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Value> {
         self.push_block_scope();
-        let pat = self.eval_expr(get_pat)?.as_pattern()?;
+        let arg = self.eval_expr(arg)?;
+        let pat = self.eval_expr(get_pat)?;
+        let result = pat.as_pattern()?.eval(self, arg)?;
         self.pop_scope();
-        Ok(todo!())
+        Ok(result)
     }
 
     fn eval_bin_op(&mut self, lhs: &Expr, op: Op, rhs: &Expr) -> anyhow::Result<Value> {
@@ -275,24 +291,53 @@ pub enum Value {
     Tuple(Vec<Value>),
     List(Vec<Value>),
     Int(i128),
-    Pattern(Pattern),
+    Pattern(Box<dyn Pattern>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Pattern(parser::PatDef);
+#[dyn_partial_eq]
+pub trait Pattern: Debug + DynClone {
+    fn name(&self) -> &str;
+    fn eval(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value>;
+}
+
+dyn_clone::clone_trait_object!(Pattern);
+
+impl Pattern for parser::PatDef {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn eval(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+        let matched_pattern = match_val(interp, self, arg.clone())
+            .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
+        for (name, val) in matched_pattern.bindings {
+            interp.this_scope()?.set(name, val)?;
+        }
+        interp.eval_expr(&matched_pattern.expr)
+    }
+}
 
 struct MatchedPattern {
     bindings: Vec<(String, Value)>,
     expr: Expr,
 }
 
-impl Pattern {
-    fn match_val(&self, val: Value) -> Option<MatchedPattern> {
-        for match_arm in &self.0.matches {
-            let binding = &match_arm.binding;
+fn match_val(interp: &mut Interpreter, pat_def: &PatDef, val: Value) -> Option<MatchedPattern> {
+    for match_arm in &pat_def.matches {
+        if let Some(matched) = match_binding(interp, val.clone(), &match_arm.binding) {
+            let bindings = matched
+                .all_matches()
+                .into_iter()
+                .filter(|m| m.has_name())
+                .map(|m| (m.name.unwrap(), m.value.clone()))
+                .collect();
+            return Some(MatchedPattern {
+                bindings,
+                expr: match_arm.expr.clone(),
+            });
         }
-        None
     }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -327,9 +372,17 @@ impl Match {
     fn has_name(&self) -> bool {
         self.name.is_some()
     }
+
+    fn all_matches(&self) -> Vec<Match> {
+        let mut matches = vec![self.clone()];
+        for inner_match in &self.inner_matches {
+            matches.extend(inner_match.all_matches());
+        }
+        matches
+    }
 }
 
-fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
+fn match_binding(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -> Option<Match> {
     match binding {
         Binding::Char(c) => {
             if matches!(Value::Char(*c), val) {
@@ -340,7 +393,7 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
         }
         Binding::ListOf(_, _) | Binding::Concat(_, _) => {
             if let Value::List(vals) = &val {
-                if let Some((matched, rest)) = match_list(vals.clone(), binding) {
+                if let Some((matched, rest)) = match_list(interp, vals.clone(), binding) {
                     if rest.is_empty() {
                         Some(matched)
                     } else {
@@ -358,7 +411,7 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
                 let matches = vals
                     .iter()
                     .zip(bindings.iter())
-                    .map(|(val, binding)| match_binding(val.clone(), binding))
+                    .map(|(val, binding)| match_binding(interp, val.clone(), binding))
                     .collect::<Vec<Option<Match>>>();
                 if matches.iter().all(Option::is_some) {
                     let inner_matches = matches.into_iter().flatten().collect();
@@ -371,17 +424,30 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
             }
         }
         Binding::Named(name, binding) => {
-            match_binding(val, binding).map(|m| m.add_name(name.to_owned()))
+            match_binding(interp, val, binding).map(|m| m.add_name(name.to_owned()))
         }
         Binding::Anything => Some(Match::unnamed(val)),
         Binding::Type(_) => unreachable!("types are unimplemented"),
-        Binding::Ref(_) => unreachable!("refs are unimplemented"),
+        // TODO: this can be an expr instead of a ref
+        Binding::Ref(name) => {
+            // TODO: this function needs to return a Result...
+            let pat = interp.eval_ref(name);
+            let pat = pat.unwrap_or_else(|_| panic!("ref {} not found", name));
+            let pat = pat
+                .as_pattern()
+                .unwrap_or_else(|_| panic!("ref {} is not a pattern", name));
+            Some(Match::unnamed(pat.eval(interp, val).unwrap()))
+        }
     }
 }
 
 // TODO: maybe this could work with iterators?
 // returns the remaining unmatched list if any
-fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec<Value>)> {
+fn match_list(
+    interp: &mut Interpreter,
+    vals: Vec<Value>,
+    binding: &parser::Binding,
+) -> Option<(Match, Vec<Value>)> {
     match binding {
         Binding::Anything
         | Binding::Ref(_)
@@ -389,15 +455,15 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec
         | Binding::Char(_)
         | Binding::Tuple(_) => {
             let val = vals.first()?;
-            if let Some(matched) = match_binding(val.clone(), binding) {
+            if let Some(matched) = match_binding(interp, val.clone(), binding) {
                 Some((matched, vals.into_iter().skip(1).collect()))
             } else {
                 None
             }
         }
         Binding::Concat(left, right) => {
-            let (mut left_matched, rest) = match_list(vals.clone(), left)?;
-            let (right_matched, rest) = match_list(rest, right)?;
+            let (mut left_matched, rest) = match_list(interp, vals.clone(), left)?;
+            let (right_matched, rest) = match_list(interp, rest, right)?;
             let this_match = Match::unnamed(Value::List(vals))
                 .with_inner_matches(vec![left_matched, right_matched]);
             Some((this_match, rest))
@@ -407,12 +473,12 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec
             let mut rest = vals.clone();
             if let Some(ListLenBinding::Min(min)) = len_binding {
                 for _ in 0..*min {
-                    let (_, inner_rest) = match_list(rest, binding)?;
+                    let (_, inner_rest) = match_list(interp, rest, binding)?;
                     split_i += 1;
                     rest = inner_rest;
                 }
             }
-            while let Some((_, inner_rest)) = match_list(rest.clone(), binding) {
+            while let Some((_, inner_rest)) = match_list(interp, rest.clone(), binding) {
                 split_i += 1;
                 rest = inner_rest;
             }
@@ -420,15 +486,23 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec
             Some((Match::unnamed(Value::List(vals.to_vec())), rest.to_vec()))
         }
         Binding::Named(name, binding) => {
-            match_list(vals, binding).map(|(m, rest)| (m.add_name(name.to_owned()), rest))
+            match_list(interp, vals, binding).map(|(m, rest)| (m.add_name(name.to_owned()), rest))
         }
     }
 }
 
 impl Value {
-    fn as_pattern(&self) -> anyhow::Result<&Pattern> {
+    fn as_string(&self) -> anyhow::Result<String> {
+        Ok(self
+            .as_list()?
+            .iter()
+            .map(|v| v.as_char())
+            .collect::<anyhow::Result<String>>()?)
+    }
+
+    fn as_pattern(&self) -> anyhow::Result<&dyn Pattern> {
         match self {
-            Value::Pattern(p) => Ok(p),
+            Value::Pattern(p) => Ok(p.as_ref()),
             _ => Err(anyhow::anyhow!("not a pattern")),
         }
     }
