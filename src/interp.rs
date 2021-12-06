@@ -342,7 +342,7 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
             if let Value::List(vals) = &val {
                 if let Some((matched, rest)) = match_list(vals.clone(), binding) {
                     if rest.is_empty() {
-                        Some(Match::unnamed(Value::List(matched)))
+                        matched
                     } else {
                         None
                     }
@@ -381,21 +381,22 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
 
 // TODO: maybe this could work with iterators?
 // returns the remaining unmatched list if any
-fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>, Vec<Value>)> {
+fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Match, Vec<Value>)> {
     match binding {
         Binding::Anything | Binding::Ref(_) | Binding::Type(_) | Binding::Char(_) => {
             let val = vals.first()?;
-            if matches!(Value::Char(*c), val) {
-                Some((vec![Value::Char(*c)], vals[1..].to_vec()))
+            if let Some(matched) = match_binding(val.clone(), binding) {
+                Some((matched, vals.into_iter().skip(1).collect()))
             } else {
                 None
             }
         }
         Binding::Concat(left, right) => {
-            let (mut left_matched, rest) = match_list(vals, left)?;
+            let (mut left_matched, rest) = match_list(vals.clone(), left)?;
             let (right_matched, rest) = match_list(rest, right)?;
-            left_matched.extend_from_slice(&right_matched);
-            Some((left_matched, rest))
+            let this_match = Match::unnamed(Value::List(vals))
+                .with_inner_matches(vec![left_matched, right_matched]);
+            Some((this_match, rest))
         }
         Binding::ListOf(binding, len_binding) => {
             let mut matched = vec![];
