@@ -27,6 +27,11 @@ pat bin_le_to_int { [bits@ANY] => {
 }}
 
 sums = expand(0, #(readings(0)))
+for reading <- readings {
+  for bit <- bits {
+    sums[#bit] = sums[#bit] + bit
+  }
+}
 "#;
 
 fn main() -> anyhow::Result<()> {
