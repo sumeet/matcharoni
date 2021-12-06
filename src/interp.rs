@@ -307,9 +307,9 @@ pub trait Pattern: Debug + DynClone {
         &self,
         interp: &mut Interpreter,
         arg: Vec<Value>,
-    ) -> anyhow::Result<(Value, Vec<Value>)> {
+    ) -> anyhow::Result<Option<(Value, Vec<Value>)>> {
         self.match_full(interp, Value::List(arg))
-            .map(|val| (val, vec![]))
+            .map(|val| Some((val, vec![])))
     }
 }
 
@@ -321,7 +321,7 @@ impl Pattern for parser::PatDef {
     }
 
     fn match_full(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
-        let matched_pattern = match_pat_def_full(interp, self, arg.clone())
+        let matched_pattern = match_pat_def_full(interp, self, arg.clone())?
             .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val)?;
@@ -333,13 +333,16 @@ impl Pattern for parser::PatDef {
         &self,
         interp: &mut Interpreter,
         arg: Vec<Value>,
-    ) -> anyhow::Result<(Value, Vec<Value>)> {
-        let (matched_pattern, rest) = match_pat_def_partial(interp, self, arg.clone())
-            .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
+    ) -> anyhow::Result<Option<(Value, Vec<Value>)>> {
+        let partial_match = match_pat_def_partial(interp, self, arg.clone())?;
+        if partial_match.is_none() {
+            return Ok(None);
+        }
+        let (matched_pattern, rest) = partial_match.unwrap();
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val)?;
         }
-        Ok((interp.eval_expr(&matched_pattern.expr)?, rest))
+        Ok(Some((interp.eval_expr(&matched_pattern.expr)?, rest)))
     }
 }
 
@@ -353,33 +356,33 @@ fn match_pat_def_full(
     interp: &mut Interpreter,
     pat_def: &PatDef,
     val: Value,
-) -> Option<MatchedPattern> {
+) -> anyhow::Result<Option<MatchedPattern>> {
     // TODO?: perhaps it would be simpler to use an Or pattern here instead of having match arms be a
     // special case
     for match_arm in &pat_def.matches {
-        if let Some(matched) = match_full(interp, val.clone(), &match_arm.binding) {
+        if let Some(matched) = match_full(interp, val.clone(), &match_arm.binding)? {
             let bindings = matched
                 .all_matches()
                 .into_iter()
                 .filter(|m| m.has_name())
                 .map(|m| (m.name.unwrap(), m.value.clone()))
                 .collect();
-            return Some(MatchedPattern {
+            return Ok(Some(MatchedPattern {
                 bindings,
                 expr: match_arm.expr.clone(),
-            });
+            }));
         }
     }
-    None
+    Ok(None)
 }
 
 fn match_pat_def_partial(
     interp: &mut Interpreter,
     pat_def: &PatDef,
     vals: Vec<Value>,
-) -> Option<(MatchedPattern, Vec<Value>)> {
+) -> anyhow::Result<Option<(MatchedPattern, Vec<Value>)>> {
     for match_arm in &pat_def.matches {
-        if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding) {
+        if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding)? {
             // TODO: duped with match_pat_def_full
             let bindings = matched
                 .all_matches()
@@ -387,16 +390,16 @@ fn match_pat_def_partial(
                 .filter(|m| m.has_name())
                 .map(|m| (m.name.unwrap(), m.value.clone()))
                 .collect();
-            return Some((
+            return Ok(Some((
                 MatchedPattern {
                     bindings,
                     expr: match_arm.expr.clone(),
                 },
                 rest,
-            ));
+            )));
         }
     }
-    None
+    Ok(None)
 }
 
 #[derive(Debug, Clone)]
@@ -441,8 +444,12 @@ impl Match {
     }
 }
 
-fn match_full(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -> Option<Match> {
-    match binding {
+fn match_full(
+    interp: &mut Interpreter,
+    val: Value,
+    binding: &parser::Binding,
+) -> anyhow::Result<Option<Match>> {
+    Ok(match binding {
         Binding::Char(c) => {
             if Value::Char(*c) == val {
                 Some(Match::unnamed(val))
@@ -452,7 +459,7 @@ fn match_full(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -
         }
         Binding::ListOf(_, _) | Binding::ConcatList(_) | Binding::Concat(_, _) => {
             if let Value::List(vals) = &val {
-                if let Some((matched, rest)) = match_partial(interp, vals.clone(), binding) {
+                if let Some((matched, rest)) = match_partial(interp, vals.clone(), binding)? {
                     if rest.is_empty() {
                         Some(matched)
                     } else {
@@ -471,7 +478,7 @@ fn match_full(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -
                     .iter()
                     .zip(bindings.iter())
                     .map(|(val, binding)| match_full(interp, val.clone(), binding))
-                    .collect::<Vec<Option<Match>>>();
+                    .collect::<anyhow::Result<Vec<Option<Match>>>>()?;
                 if matches.iter().all(Option::is_some) {
                     let inner_matches = matches.into_iter().flatten().collect();
                     Some(Match::unnamed(val).with_inner_matches(inner_matches))
@@ -483,7 +490,7 @@ fn match_full(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -
             }
         }
         Binding::Named(name, binding) => {
-            match_full(interp, val, binding).map(|m| m.add_name(name.to_owned()))
+            match_full(interp, val, binding)?.map(|m| m.add_name(name.to_owned()))
         }
         Binding::Anything => Some(Match::unnamed(val)),
         Binding::Type(_) => unreachable!("types are unimplemented"),
@@ -505,7 +512,7 @@ fn match_full(interp: &mut Interpreter, val: Value, binding: &parser::Binding) -
                 Ok(val) => Some(Match::unnamed(val)),
             }
         }
-    }
+    })
 }
 
 // TODO: maybe this could work with iterators?
@@ -514,11 +521,15 @@ fn match_partial(
     interp: &mut Interpreter,
     vals: Vec<Value>,
     binding: &parser::Binding,
-) -> Option<(Match, Vec<Value>)> {
-    match binding {
+) -> anyhow::Result<Option<(Match, Vec<Value>)>> {
+    Ok(match binding {
         Binding::Anything | Binding::Type(_) | Binding::Char(_) | Binding::Tuple(_) => {
-            let val = vals.first()?;
-            if let Some(matched) = match_full(interp, val.clone(), binding) {
+            let val = vals.first();
+            if val.is_none() {
+                return Ok(None);
+            }
+            let val = val.unwrap();
+            if let Some(matched) = match_full(interp, val.clone(), binding)? {
                 Some((matched, vals.into_iter().skip(1).collect()))
             } else {
                 None
@@ -536,8 +547,17 @@ fn match_partial(
             // }
         }
         Binding::Concat(left, right) => {
-            let (left_matched, rest) = match_partial(interp, vals.clone(), left)?;
-            let (right_matched, rest) = match_partial(interp, rest, right)?;
+            let left = match_partial(interp, vals.clone(), left)?;
+            if left.is_none() {
+                return Ok(None);
+            }
+            let (left_matched, rest) = left.unwrap();
+
+            let right = match_partial(interp, rest, right)?;
+            if right.is_none() {
+                return Ok(None);
+            }
+            let (right_matched, rest) = right.unwrap();
             let this_match = Match::unnamed(Value::List(vals))
                 .with_inner_matches(vec![left_matched, right_matched]);
             Some((this_match, rest))
@@ -547,30 +567,37 @@ fn match_partial(
             let mut rest = vals.clone();
             if let Some(ListLenBinding::Min(min)) = len_binding {
                 for _ in 0..*min {
-                    let (inner_match, inner_rest) = match_partial(interp, rest, binding)?;
+                    let inner = match_partial(interp, rest, binding)?;
+                    if inner.is_none() {
+                        return Ok(None);
+                    }
+                    let (inner_match, inner_rest) = inner.unwrap();
                     matched.push(inner_match.value);
                     rest = inner_rest;
                 }
             }
-            while let Some((inner_match, inner_rest)) = match_partial(interp, rest.clone(), binding)
+            while let Some((inner_match, inner_rest)) =
+                match_partial(interp, rest.clone(), binding)?
             {
-                dbg!(&matched);
                 matched.push(inner_match.value);
                 rest = inner_rest;
             }
             Some((Match::unnamed(Value::List(matched)), rest))
         }
-        Binding::Named(name, binding) => match_partial(interp, vals, binding)
+        Binding::Named(name, binding) => match_partial(interp, vals, binding)?
             .map(|(m, rest)| (m.add_name(name.to_owned()), rest)),
         // TODO: Binding::Ref could just be Binding::Expr
         Binding::Ref(name) => {
-            // TODO: this function should return a result instead of panicking
-            let pat = interp.eval_ref(name).unwrap();
-            let pat = pat.as_pattern().unwrap();
-            let (val, rest) = pat.match_partial(interp, vals).unwrap();
+            let pat = interp.eval_ref(name)?;
+            let pat = pat.as_pattern()?;
+            let matched = pat.match_partial(interp, vals)?;
+            if matched.is_none() {
+                return Ok(None);
+            }
+            let (val, rest) = matched.unwrap();
             Some((Match::unnamed(val), rest))
         }
-    }
+    })
 }
 
 impl Value {

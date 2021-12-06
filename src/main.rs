@@ -23,9 +23,9 @@ pat bin_le_to_int { [bits@Int] => {
 
 
 input = read_to_string("./input")
-//reading = reading("00001111\n")
-//dbg(reading)
 dbg(reading_no_newline("00001111"))
+dbg(reading("00001111\n"))
+dbg(readings("01\n10\n"))
 
 // 
 // pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
