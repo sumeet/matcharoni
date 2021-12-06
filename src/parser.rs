@@ -63,7 +63,7 @@ pub enum Expr {
     Ref(String),
     Block(Vec<Expr>),
     Assignment(String, Box<Expr>),
-    ListComprehension { list: Box<Expr>, over: Box<Expr> },
+    ListComprehension { expr: Box<Expr>, over: Box<Expr> },
     ListLiteral(Vec<Expr>),
     CallPat(Box<Expr>, Box<Expr>),
     Range(Box<Expr>, Box<Expr>),
@@ -221,8 +221,8 @@ peg::parser! {
             }
 
         rule list_comprehension_expr() -> Expr
-            = "[" _? list:expr() _? "<-" _? over:expr() _? "]" {
-                Expr::ListComprehension { list: Box::new(list), over: Box::new(over) }
+            = "[" _? expr:expr() _? "<-" _? over:expr() _? "]" {
+                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
             }
 
         rule list_literal_expr() -> Expr

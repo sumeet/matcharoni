@@ -116,7 +116,7 @@ impl Interpreter {
             Expr::Ref(var_name) => self.eval_ref(var_name)?,
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
-            Expr::ListComprehension { list, over } => self.eval_list_comp(list, over)?,
+            Expr::ListComprehension { expr, over } => self.eval_list_comp(expr, over)?,
             Expr::TupleLiteral(exprs) => Value::Tuple(
                 exprs
                     .iter()
@@ -234,17 +234,17 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
 
-    fn eval_list_comp(&mut self, list: &Expr, over: &Expr) -> anyhow::Result<Value> {
-        let name = match list {
+    fn eval_list_comp(&mut self, expr: &Expr, over: &Expr) -> anyhow::Result<Value> {
+        let name = match over {
             Expr::Ref(name) => Some(name.to_string()),
             _ => None,
         };
-        let list = self.eval_expr(list)?.into_list()?;
+        let list = self.eval_expr(over)?.into_list()?;
         let len = list.len();
         let mut ret = Vec::with_capacity(len);
         self.push_list_comp_scope(name, list);
         for _ in 0..len {
-            ret.push(self.eval_expr(over)?);
+            ret.push(self.eval_expr(expr)?);
             self.incr_list_comp_index()?;
         }
         self.pop_scope();
@@ -640,7 +640,7 @@ impl Value {
     fn into_list(self) -> anyhow::Result<Vec<Value>> {
         match self {
             Value::List(l) => Ok(l),
-            _ => Err(anyhow::anyhow!("not a list")),
+            _ => Err(anyhow::anyhow!("{:?} is not a list", self)),
         }
     }
 
