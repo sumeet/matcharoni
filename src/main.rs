@@ -20,7 +20,9 @@ pat bin_le_to_int { [bits@Int] => {
 
 
 input = read_to_string("./input")
-dbg(input(0))
+//dbg(input(0))
+hoohaw = line "01000\n"
+dbg(hoohaw)
 //readings = lines(input)
 
 pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
