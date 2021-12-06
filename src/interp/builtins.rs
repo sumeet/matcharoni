@@ -17,7 +17,7 @@ impl Pattern for ReadToString {
         "read_to_string"
     }
 
-    fn eval(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
         let filename = arg.as_string()?;
         Ok(Value::List(
             read_to_string(filename)?.chars().map(Value::Char).collect(),
@@ -33,7 +33,7 @@ impl Pattern for DebugPrint {
         "dbg"
     }
 
-    fn eval(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
         println!("{:?}", arg);
         Ok(Value::Void)
     }

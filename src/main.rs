@@ -11,8 +11,8 @@ const TEST_PROGGY: &str = r#"
 pat bin { '0' => 0, '1' => 1 }
 // TODO: might need flatten thing...
 
+pat reading_no_newline { bins@[bin]{1+} => bins }
 pat reading { bins@[bin]{1+} ~ '\n' => bins }
-pat lineNoNewline { bins@[bin]{1+} => bins }
 
 // TODO: might need flatten thing...
 pat readings { lines@[reading] => lines }
@@ -25,7 +25,7 @@ pat bin_le_to_int { [bits@Int] => {
 input = read_to_string("./input")
 //reading = reading("00001111\n")
 //dbg(reading)
-readings = readings("0111\n1111\n")
+dbg(reading_no_newline("00001111"))
 
 // 
 // pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
@@ -42,7 +42,7 @@ readings = readings("0111\n1111\n")
 "#;
 
 fn main() -> anyhow::Result<()> {
-    let program = dbg!(parser::parse_program(TEST_PROGGY))?;
+    let program = parser::parse_program(TEST_PROGGY)?;
     let mut interp = interp::Interpreter::new();
     for statement in &program.statements {
         interp.eval_statement(statement)?;
