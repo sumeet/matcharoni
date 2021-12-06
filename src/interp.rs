@@ -289,42 +289,105 @@ struct MatchedPattern {
 impl Pattern {
     fn match_val(&self, val: Value) -> Option<MatchedPattern> {
         for match_arm in &self.0.matches {
-            match &match_arm.binding {
-                Binding::Char(c) => {
-                    if matches!(Value::Char(*c), val) {
-                        return Some(MatchedPattern {
-                            bindings: vec![],
-                            expr: match_arm.expr.clone(),
-                        });
-                    }
-                }
-                Binding::Concat(left, right) => {
-                    if let Value::List(list) = val {
-                        todo!()
-                    }
-                }
-                Binding::ListOf(_, _) => {}
-                Binding::Tuple(_) => {}
-                Binding::Named(_, _) => {}
-                Binding::Type(_) => {}
-                Binding::Ref(_) => {}
-                Binding::Anything => {}
-            }
+            let binding = &match_arm.binding;
         }
         None
     }
 }
 
+#[derive(Debug, Clone)]
 struct Match {
     value: Value,
-    name: String,
+    name: Option<String>,
+    inner_matches: Vec<Match>,
+}
+
+impl Match {
+    fn unnamed(value: Value) -> Self {
+        Self {
+            value,
+            name: None,
+            inner_matches: vec![],
+        }
+    }
+
+    fn with_inner_matches(mut self, inner_matches: Vec<Match>) -> Self {
+        self.inner_matches = inner_matches;
+        self
+    }
+
+    fn add_name(mut self, name: String) -> Self {
+        if self.has_name() {
+            self.inner_matches.push(self.clone());
+        }
+        self.name = Some(name);
+        self
+    }
+
+    fn has_name(&self) -> bool {
+        self.name.is_some()
+    }
+}
+
+fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
+    match binding {
+        Binding::Char(c) => {
+            if matches!(Value::Char(*c), val) {
+                Some(Match::unnamed(val))
+            } else {
+                None
+            }
+        }
+        Binding::ListOf(_, _) | Binding::Concat(_, _) => {
+            if let Value::List(vals) = &val {
+                if let Some((matched, rest)) = match_list(vals.clone(), binding) {
+                    if rest.is_empty() {
+                        Some(Match::unnamed(Value::List(matched)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Binding::Tuple(bindings) => {
+            if let Value::Tuple(vals) = &val {
+                let matches = vals
+                    .iter()
+                    .zip(bindings.iter())
+                    .map(|(val, binding)| match_binding(val.clone(), binding))
+                    .collect::<Vec<Option<Match>>>();
+                if matches.iter().all(Option::is_some) {
+                    let inner_matches = matches.into_iter().flatten().collect();
+                    Some(Match::unnamed(val).with_inner_matches(inner_matches))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Binding::Named(name, binding) => {
+            match_binding(val, binding).map(|m| m.add_name(name.to_owned()))
+        }
+        Binding::Anything => Some(Match::unnamed(val)),
+        Binding::Type(_) => unreachable!("types are unimplemented"),
+        Binding::Ref(_) => unreachable!("refs are unimplemented"),
+    }
 }
 
 // TODO: maybe this could work with iterators?
 // returns the remaining unmatched list if any
 fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>, Vec<Value>)> {
     match binding {
-        Binding::Char(c) => {
+        Binding::Anything
+        | Binding::Ref(_)
+        | Binding::Named(_, _)
+        | Binding::Type(_)
+        | Binding::Char(_) => {
             let val = vals.first()?;
             if matches!(Value::Char(*c), val) {
                 Some((vec![Value::Char(*c)], vals[1..].to_vec()))
@@ -368,12 +431,6 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>
             }
             Some((matched, rest))
         }
-        Binding::Anything => vals
-            .split_first()
-            .map(|(first, rest)| (vec![first.clone()], rest.to_vec())),
-        Binding::Ref(_) => unreachable!("ref should have been replaced upstream"),
-        Binding::Named(_, _) => todo!(),
-        Binding::Type(_) => unimplemented!("no support for types yet"),
     }
 }
 
