@@ -383,11 +383,7 @@ fn match_binding(val: Value, binding: &parser::Binding) -> Option<Match> {
 // returns the remaining unmatched list if any
 fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>, Vec<Value>)> {
     match binding {
-        Binding::Anything
-        | Binding::Ref(_)
-        | Binding::Named(_, _)
-        | Binding::Type(_)
-        | Binding::Char(_) => {
+        Binding::Anything | Binding::Ref(_) | Binding::Type(_) | Binding::Char(_) => {
             let val = vals.first()?;
             if matches!(Value::Char(*c), val) {
                 Some((vec![Value::Char(*c)], vals[1..].to_vec()))
@@ -431,6 +427,7 @@ fn match_list(vals: Vec<Value>, binding: &parser::Binding) -> Option<(Vec<Value>
             }
             Some((matched, rest))
         }
+        Binding::Named(_, _) => panic!("what to do when getting a named in here???????"),
     }
 }
 
