@@ -140,6 +140,12 @@ impl Interpreter {
         self.push_block_scope();
         let arg = self.eval_expr(arg)?;
         let pat = self.eval_expr(get_pat)?;
+
+        // hack for list indices
+        if let (Value::List(list), Value::Int(i)) = (&pat, &arg) {
+            return Ok(list[*i as usize].clone());
+        }
+
         let result = pat.as_pattern()?.eval(self, arg)?;
         self.pop_scope();
         Ok(result)
