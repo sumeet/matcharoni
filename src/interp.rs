@@ -318,8 +318,8 @@ impl Pattern for parser::PatDef {
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val)?;
         }
-        dbg!(interp.eval_ref("bins"));
-        interp.eval_expr(dbg!(&matched_pattern.expr))
+        interp.eval_ref("bins");
+        interp.eval_expr(&matched_pattern.expr)
     }
 }
 
@@ -398,7 +398,7 @@ fn match_binding(interp: &mut Interpreter, val: Value, binding: &parser::Binding
                 None
             }
         }
-        Binding::ListOf(_, _) | Binding::Concat(_, _) => {
+        Binding::ListOf(_, _) | Binding::ConcatList(_) | Binding::Concat(_, _) => {
             if let Value::List(vals) = &val {
                 if let Some((matched, rest)) = match_list(interp, vals.clone(), binding) {
                     if rest.is_empty() {
@@ -474,6 +474,16 @@ fn match_list(
                 Some((matched, vals.into_iter().skip(1).collect()))
             } else {
                 None
+            }
+        }
+        Binding::ConcatList(binding) => {
+            let mut matched = vec![];
+            for val in vals {
+                if let Some(m) = match_binding(interp, val, binding) {
+                    matched.push(m);
+                } else {
+                    return None;
+                }
             }
         }
         Binding::Concat(left, right) => {

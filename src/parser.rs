@@ -31,6 +31,7 @@ pub struct Match {
 pub enum Binding {
     Char(char),
     Concat(Box<Binding>, Box<Binding>),
+    ConcatList(Box<Binding>),
     ListOf(Box<Binding>, Option<ListLenBinding>),
     Tuple(Vec<Binding>),
     Named(String, Box<Binding>),
@@ -142,8 +143,9 @@ peg::parser! {
             }
 
         rule scalar_binding() -> Binding
-            = (named_binding() / char_binding() / binding_in_parens() / tuple_binding() / list_binding() /
-               any_binding() / type_binding() / ref_binding())
+            = (named_binding() / char_binding() / binding_in_parens() / tuple_binding() /
+               concat_list_binding() / list_binding() / any_binding() / type_binding() /
+               ref_binding())
 
         rule tuple_binding() -> Binding
             = "(" _? bindings:(binding() ** comma()) _? ")" {
@@ -152,6 +154,10 @@ peg::parser! {
         rule binding_in_parens() -> Binding
             = "(" _? binding:binding() _? ")" { binding }
 
+        rule concat_list_binding() -> Binding
+            = "[" _? binding:binding() _? "..." _? "]" {
+                Binding::ConcatList(Box::new(binding))
+            }
         rule list_binding() -> Binding
             = "[" _? binding:binding() _? "]" _? len:list_len_binding()? {
                 Binding::ListOf(Box::new(binding), len)

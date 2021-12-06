@@ -15,7 +15,7 @@ pat reading { bins@[bin]{1+} ~ '\n' => bins }
 pat lineNoNewline { bins@[bin]{1+} => bins }
 
 // TODO: might need flatten thing...
-pat readings { lines@[reading...] => lines }
+pat readings { lines@[reading] => lines }
 
 pat bin_le_to_int { [bits@Int] => {
   sum [(*bits << (#bits - %bits)) <- bits]
@@ -23,9 +23,9 @@ pat bin_le_to_int { [bits@Int] => {
 
 
 input = read_to_string("./input")
-reading = reading("00001111\n")
-dbg(reading)
-//readings = readings(input)
+//reading = reading("00001111\n")
+//dbg(reading)
+readings = readings("0111\n1111\n")
 
 // 
 // pat expand { (x@ANY, n@Int) => { [x <- 0..n] } }
