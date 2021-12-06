@@ -15,6 +15,7 @@ enum Scope {
         name: Option<String>,
         index: usize,
         list: Vec<Value>,
+        map: HashMap<String, Value>,
     },
 }
 
@@ -25,12 +26,9 @@ impl Scope {
 
     fn set(&mut self, name: String, value: Value) -> anyhow::Result<()> {
         match self {
-            Scope::Block(map) => {
+            Scope::Block(map) | Scope::ListComp { map, .. } => {
                 map.insert(name.clone(), value);
                 Ok(())
-            }
-            Scope::ListComp { .. } => {
-                anyhow::bail!("can't assign insided a list comprehension...yet...")
             }
         }
     }
@@ -57,6 +55,7 @@ impl Interpreter {
 
     fn push_list_comp_scope(&mut self, name: Option<String>, list: Vec<Value>) {
         self.scope.push(Scope::ListComp {
+            map: HashMap::new(),
             name,
             index: 0,
             list,
@@ -225,11 +224,12 @@ impl Interpreter {
             .find_map(|scope| match scope {
                 Scope::Block(scope) => scope.get(var_name).cloned(),
                 Scope::ListComp {
+                    map: _,
                     name: Some(name),
                     index: _,
                     list,
                 } if name == var_name => Some(Value::List(list.clone())),
-                Scope::ListComp { .. } => None,
+                Scope::ListComp { map, .. } => map.get(var_name).cloned(),
             })
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
@@ -257,6 +257,7 @@ impl Interpreter {
             .rev()
             .find_map(|scope| match scope {
                 Scope::ListComp {
+                    map: _,
                     name: Some(name),
                     index,
                     list,
@@ -273,6 +274,7 @@ impl Interpreter {
             .rev()
             .find_map(|scope| match scope {
                 Scope::ListComp {
+                    map: _,
                     name: Some(name),
                     index,
                     list: _,
