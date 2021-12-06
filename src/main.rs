@@ -11,7 +11,7 @@ const TEST_PROGGY: &str = r#"
 pat bin { '0' => 0, '1' => 1 }
 // TODO: might need flatten thing...
 
-pat reading { bins@([bin]{1+}) ~ '\n' => bins }
+pat reading { bins@[bin]{1+} ~ '\n' => bins }
 pat lineNoNewline { bins@[bin]{1+} => bins }
 
 // TODO: might need flatten thing...
@@ -42,7 +42,7 @@ dbg(reading "111110\n")
 "#;
 
 fn main() -> anyhow::Result<()> {
-    let program = parser::parse_program(TEST_PROGGY)?;
+    let program = dbg!(parser::parse_program(TEST_PROGGY))?;
     let mut interp = interp::Interpreter::new();
     for statement in &program.statements {
         interp.eval_statement(statement)?;

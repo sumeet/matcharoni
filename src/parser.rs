@@ -163,7 +163,7 @@ peg::parser! {
             / min:int() "+" { ListLenBinding::Min(min as _) }
 
         rule named_binding() -> Binding
-            = name:ident() _? "@" _? binding:binding() {
+            = name:ident() _? "@" _? binding:scalar_binding() {
                 Binding::Named(name.to_owned(), Box::new(binding))
             }
         rule char_binding() -> Binding

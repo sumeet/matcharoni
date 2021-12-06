@@ -318,7 +318,8 @@ impl Pattern for parser::PatDef {
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val)?;
         }
-        interp.eval_expr(&matched_pattern.expr)
+        dbg!(interp.eval_ref("bins"));
+        interp.eval_expr(dbg!(&matched_pattern.expr))
     }
 }
 
