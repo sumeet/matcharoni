@@ -8,6 +8,7 @@ use std::fmt::Debug;
 
 mod builtins;
 
+#[derive(Debug)]
 enum Scope {
     // should values be Rcd / Gcd?
     Block(HashMap<String, Value>),
@@ -148,7 +149,6 @@ impl Interpreter {
     }
 
     fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Value> {
-        self.push_block_scope();
         let pat = self.eval_expr(get_pat)?;
         let arg = self.eval_expr(arg)?;
 
@@ -159,7 +159,6 @@ impl Interpreter {
             pat.as_pattern()?.match_full(self, arg)?
         };
 
-        self.pop_scope();
         Ok(result)
     }
 
@@ -378,10 +377,13 @@ impl Pattern for parser::PatDef {
     fn match_full(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
         let matched_pattern = match_pat_def_full(interp, self, arg.clone())?
             .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
+        interp.push_block_scope();
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val);
         }
-        Ok(interp.eval_expr(&matched_pattern.expr)?)
+        let res = interp.eval_expr(&matched_pattern.expr)?;
+        interp.pop_scope();
+        Ok(res)
     }
 
     fn match_partial(
@@ -394,10 +396,13 @@ impl Pattern for parser::PatDef {
             return Ok(None);
         }
         let (matched_pattern, rest) = partial_match.unwrap();
+        interp.push_block_scope();
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val);
         }
-        Ok(Some((interp.eval_expr(&matched_pattern.expr)?, rest)))
+        let res = Some((interp.eval_expr(&matched_pattern.expr)?, rest));
+        interp.pop_scope();
+        Ok(res)
     }
 }
 
