@@ -45,7 +45,7 @@ impl Pattern for DebugPrint {
 fn print(arg: &Value) {
     match arg {
         Value::Void => print!("()"),
-        Value::Char(c) => print!("{}", c),
+        Value::Char(c) => print!("'{}'", c),
         Value::Tuple(vals) => {
             print!("(");
             if let Some((last, rest)) = vals.split_last() {
