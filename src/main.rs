@@ -1,3 +1,5 @@
+#![feature(array_windows)]
+
 mod interp;
 mod parser;
 

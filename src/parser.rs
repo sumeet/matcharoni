@@ -195,8 +195,8 @@ peg::parser! {
 
         rule op() -> Op
             = ("+" { Op::Add } / "/" { Op::Div } / "-" { Op::Sub } / "*" { Op::Mul } /
-               "**" { Op::Pow } / "==" { Op::Eq } / "!=" { Op::Neq } / ">" { Op::Gt } /
-               "<<" { Op::Shl } / "<" { Op::Lt } / ">=" { Op::Gte } / "<=" { Op::Lte } /
+               "**" { Op::Pow } / "==" { Op::Eq } / "!=" { Op::Neq } / ">=" { Op::Gte } /
+               "<<" { Op::Shl } / "<=" { Op::Lte } / ">" { Op::Gt } / "<" { Op::Lt } /
                "&&" { Op::And } / "||" { Op::Or })
 
         rule range_expr() -> Expr

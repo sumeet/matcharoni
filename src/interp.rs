@@ -711,6 +711,13 @@ impl Value {
         }
     }
 
+    fn into_tuple(self) -> anyhow::Result<Vec<Value>> {
+        match self {
+            Value::Tuple(t) => Ok(t),
+            _ => Err(anyhow::anyhow!("{:?} is not a tuple", self)),
+        }
+    }
+
     fn is_true(&self) -> anyhow::Result<bool> {
         Ok(self.as_int()? != 0)
     }
