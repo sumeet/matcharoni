@@ -35,6 +35,7 @@ pub enum Binding {
     ListOf(Box<Binding>, Option<ListLenBinding>),
     Tuple(Vec<Binding>),
     Named(String, Box<Binding>),
+    Shovel(String, Box<Binding>),
     // TODO: ignoring types for now
     Type(String),
     // TODO: should this be an Expr and not only a Ref?
@@ -143,9 +144,9 @@ peg::parser! {
             }
 
         rule scalar_binding() -> Binding
-            = (named_binding() / char_binding() / binding_in_parens() / tuple_binding() /
-               concat_list_binding() / list_binding() / any_binding() / type_binding() /
-               ref_binding())
+            = (shovel_binding() / named_binding() / char_binding() / binding_in_parens() /
+               tuple_binding() / concat_list_binding() / list_binding() / any_binding() /
+               type_binding() / ref_binding())
 
         rule tuple_binding() -> Binding
             = "(" _? bindings:(binding() ** comma()) _? ")" {
@@ -171,6 +172,10 @@ peg::parser! {
         rule named_binding() -> Binding
             = name:ident() _? "@" _? binding:scalar_binding() {
                 Binding::Named(name.to_owned(), Box::new(binding))
+            }
+        rule shovel_binding() -> Binding
+            = name:ident() _? "<@" _? binding:scalar_binding() {
+                Binding::Shovel(name.to_owned(), Box::new(binding))
             }
         rule char_binding() -> Binding
             = char:char_lit() { Binding::Char(char) }

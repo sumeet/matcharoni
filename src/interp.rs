@@ -3,7 +3,7 @@ use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, PatDef, Stat
 use anyhow::bail;
 use dyn_clone::DynClone;
 use dyn_partial_eq::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
 mod builtins;
@@ -421,12 +421,7 @@ fn match_pat_def_full(
     // special case
     for match_arm in &pat_def.matches {
         if let Some(matched) = match_full(interp, val.clone(), &match_arm.binding)? {
-            let bindings = matched
-                .all_matches()
-                .into_iter()
-                .filter(|m| m.has_name())
-                .map(|m| (m.name.unwrap(), m.value.clone()))
-                .collect();
+            let bindings = matched.collect_named_matches();
             return Ok(Some(MatchedPattern {
                 bindings,
                 expr: match_arm.expr.clone(),
@@ -444,12 +439,7 @@ fn match_pat_def_partial(
     for match_arm in &pat_def.matches {
         if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding)? {
             // TODO: duped with match_pat_def_full
-            let bindings = matched
-                .all_matches()
-                .into_iter()
-                .filter(|m| m.has_name())
-                .map(|m| (m.name.unwrap(), m.value.clone()))
-                .collect();
+            let bindings = matched.collect_named_matches();
             return Ok(Some((
                 MatchedPattern {
                     bindings,
@@ -463,9 +453,15 @@ fn match_pat_def_partial(
 }
 
 #[derive(Debug, Clone)]
+enum MatchName {
+    Scalar(String),
+    Shovel(String),
+}
+
+#[derive(Debug, Clone)]
 struct Match {
     value: Value,
-    name: Option<String>,
+    name: Option<MatchName>,
     inner_matches: Vec<Match>,
 }
 
@@ -483,7 +479,8 @@ impl Match {
         self
     }
 
-    fn add_name(mut self, name: String) -> Self {
+    fn add_name(mut self, name: MatchName) -> Self {
+        // if this match is already bound to another name, then keep the name, adding the new name
         if self.has_name() {
             self.inner_matches.push(self.clone());
         }
@@ -493,6 +490,39 @@ impl Match {
 
     fn has_name(&self) -> bool {
         self.name.is_some()
+    }
+
+    // TODO: return Result instead of panicking
+    fn collect_named_matches(&self) -> Vec<(String, Value)> {
+        let mut shovels: HashMap<String, usize> = HashMap::new();
+        let mut scalars = HashSet::new();
+
+        let mut matches = vec![];
+        for (match_name, value) in self
+            .all_matches()
+            .into_iter()
+            .filter_map(|m| Some((m.name?, m.value)))
+        {
+            match match_name {
+                MatchName::Scalar(name) => {
+                    if scalars.contains(&name) {
+                        panic!("Duplicate scalar match name: {}", name);
+                    }
+                    matches.push((name.to_owned(), value.clone()));
+                    scalars.insert(name);
+                }
+                MatchName::Shovel(name) => {
+                    if let Some(&index) = shovels.get(&name) {
+                        let list = matches[index].1.as_list_mut().unwrap();
+                        list.push(value);
+                    } else {
+                        shovels.insert(name.to_owned(), matches.len());
+                        matches.push((name.to_owned(), Value::List(vec![value.clone()])));
+                    }
+                }
+            }
+        }
+        matches
     }
 
     fn all_matches(&self) -> Vec<Match> {
@@ -549,9 +579,10 @@ fn match_full(
                 None
             }
         }
-        Binding::Named(name, binding) => {
-            match_full(interp, val, binding)?.map(|m| m.add_name(name.to_owned()))
-        }
+        Binding::Shovel(name, binding) => match_full(interp, val, binding)?
+            .map(|m| m.add_name(MatchName::Shovel(name.to_owned()))),
+        Binding::Named(name, binding) => match_full(interp, val, binding)?
+            .map(|m| m.add_name(MatchName::Scalar(name.to_owned()))),
         Binding::Anything => Some(Match::unnamed(val)),
         Binding::Type(_) => unreachable!("types are unimplemented"),
         // TODO: this can be an expr instead of a ref
@@ -650,8 +681,10 @@ fn match_partial(
                 rest,
             ))
         }
+        Binding::Shovel(name, binding) => match_partial(interp, vals, binding)?
+            .map(|(m, rest)| (m.add_name(MatchName::Shovel(name.to_owned())), rest)),
         Binding::Named(name, binding) => match_partial(interp, vals, binding)?
-            .map(|(m, rest)| (m.add_name(name.to_owned()), rest)),
+            .map(|(m, rest)| (m.add_name(MatchName::Scalar(name.to_owned())), rest)),
         // TODO: Binding::Ref could just be Binding::Expr
         Binding::Ref(name) => {
             let pat = interp.eval_ref(name)?;
