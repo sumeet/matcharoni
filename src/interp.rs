@@ -624,6 +624,7 @@ fn match_partial(
         }
         Binding::ListOf(binding, len_binding) => {
             let mut matched = vec![];
+            let mut inners = vec![];
             let mut rest = vals.clone();
             if let Some(ListLenBinding::Min(min)) = len_binding {
                 for _ in 0..*min {
@@ -632,6 +633,7 @@ fn match_partial(
                         return Ok(None);
                     }
                     let (inner_match, inner_rest) = inner.unwrap();
+                    inners.push(inner_match.clone());
                     matched.push(inner_match.value);
                     rest = inner_rest;
                 }
@@ -639,10 +641,14 @@ fn match_partial(
             while let Some((inner_match, inner_rest)) =
                 match_partial(interp, rest.clone(), binding)?
             {
+                inners.push(inner_match.clone());
                 matched.push(inner_match.value);
                 rest = inner_rest;
             }
-            Some((Match::unnamed(Value::List(matched)), rest))
+            Some((
+                Match::unnamed(Value::List(matched)).with_inner_matches(inners),
+                rest,
+            ))
         }
         Binding::Named(name, binding) => match_partial(interp, vals, binding)?
             .map(|(m, rest)| (m.add_name(name.to_owned()), rest)),
