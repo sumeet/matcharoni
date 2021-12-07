@@ -97,7 +97,7 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("No scope"))
     }
 
-    pub(crate) fn eval_statement(&mut self, statement: &Statement) -> anyhow::Result<()> {
+    pub fn eval_statement(&mut self, statement: &Statement) -> anyhow::Result<()> {
         match statement {
             Statement::PatDef(pat_def) => self.define_pattern(pat_def),
             Statement::Expr(expr) => {
@@ -153,11 +153,12 @@ impl Interpreter {
         let arg = self.eval_expr(arg)?;
 
         // hack for list indices
-        if let (Value::List(list), Value::Int(i)) = (&pat, &arg) {
-            return Ok(list[*i as usize].clone());
-        }
+        let result = if let (Value::List(list), Value::Int(i)) = (&pat, &arg) {
+            list[*i as usize].clone()
+        } else {
+            pat.as_pattern()?.match_full(self, arg)?
+        };
 
-        let result = pat.as_pattern()?.match_full(self, arg)?;
         self.pop_scope();
         Ok(result)
     }
@@ -680,7 +681,7 @@ impl Value {
     fn as_int(&self) -> anyhow::Result<i128> {
         match self {
             Value::Int(i) => Ok(*i),
-            _ => Err(anyhow::anyhow!("not an int")),
+            _ => Err(anyhow::anyhow!("{:?} is not an int", self)),
         }
     }
 

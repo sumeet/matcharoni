@@ -3,25 +3,50 @@
 // bind { xs@([$names]) } => [*$names = xs[#$names] <- $names]
 
 pat bin { '0' => 0, '1' => 1 }
-pat line { [bins@bin]{1+}... ~ '\n' => bins }
-pat lines { [lines@line]... => lines }
+pat reading { bins@[bin]{1+} ~ '\n' => bins }
+pat readings { lines@[reading] => lines }
 
-pat bin_le_to_int { [bits@Int] => {
-    sum([shl(#bits - %bits, *bits) <- bits])
+pat expand { (x@ANY, n@ANY) => { [x <- 0..n] } }
+
+pat sum { ns@[ANY] => {
+  sum = 0
+  for ns { sum = sum + *ns }
+  sum
 }}
 
-
-input = read_to_string("./input")
-readings = lines(input)
-
-pat expand { (x@Any, n@Int) => { [x <- 0..n] } }
-
-pat calc_most_commons { [sums@Int] => 
-  [(*sums / 2) > (#readings / 2) <- sums]
+pat bin_le_to_int { bits@[ANY] => {
+  sum [(*bits << (#bits - (%bits + 1))) <- bits]
 }}
 
-pat calc_least_commons { [sums@Int] => 
-  [(*sums / 2) < (#readings / 2) <- sums]
+pat calc_most_commons { sums@[ANY] =>  {
+  [*sums > (#readings / 2) <- sums]
+}}
+pat calc_least_commons { sums@[ANY] =>  {
+  [*sums < (#readings / 2) <- sums]
 }}
 
-sums = expand(0, len(readings(0)))
+input = read_to_string("./sample")
+readings = readings(input)
+sums = expand(0, #(readings(0)))
+
+
+for readings {
+  bits = *readings
+  for bits {
+    sums(%bits) = sums(%bits) + *bits
+  }
+}
+
+
+gamma = calc_most_commons(sums)
+epsilon = calc_most_commons(sums)
+
+dbg(gamma)
+dbg(epsilon)
+
+dbg(bin_le_to_int(epsilon))
+dbg(bin_le_to_int(epsilon))
+//dbg(gamma)
+//dbg(gamma)
+//
+//dbg(bin_le_to_int(gamma))

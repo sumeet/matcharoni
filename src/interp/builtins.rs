@@ -35,6 +35,6 @@ impl Pattern for DebugPrint {
 
     fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
         println!("{:?}", arg);
-        Ok(Value::Void)
+        Ok(arg)
     }
 }

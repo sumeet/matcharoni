@@ -184,9 +184,9 @@ peg::parser! {
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
 
         rule expr() -> Expr
-            = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() / list_comprehension_expr() /
-               list_literal_expr() / string_literal_expr() / if_else_expr() / if_no_else_expr() /
-               for_expr() / while_expr() / scalar_expr() / this_el_expr() / block_expr())
+            = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() /
+               if_else_expr() / if_no_else_expr() / for_expr() / while_expr() / scalar_expr() /
+               this_el_expr() / block_expr())
 
         rule bin_op_expr() -> Expr
             = left:scalar_expr() _? op:op() _? right:scalar_expr() {
@@ -206,6 +206,7 @@ peg::parser! {
 
         rule scalar_expr() -> Expr
             = (parens_expr() / tuple_expr() / call_pat_expr() / char_literal_expr() /
+               list_comprehension_expr() / list_literal_expr() / string_literal_expr() /
                int_literal_expr() / this_el_expr() / index_expr() / length_expr() / ref_expr())
 
         rule parens_expr() -> Expr
@@ -216,7 +217,7 @@ peg::parser! {
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
-            = name:ident() _? "(" _? arg:expr() _? ")" {
+            = name:ident() _? arg:scalar_expr() {
                 Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), Box::new(arg))
             }
 
@@ -234,21 +235,21 @@ peg::parser! {
             = "{" _? exprs:(expr() ** whitespace()) _? "}" { Expr::Block(exprs) }
 
         rule for_expr() -> Expr
-            = "for" _? over:expr() _? expr:block_expr() {
+            = "for" _? over:scalar_expr() _? expr:block_expr() {
                 Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
             }
 
         rule while_expr() -> Expr
-            = "while" _ cond:expr() _? then:expr() {
+            = "while" _ cond:scalar_expr() _? then:block_expr() {
                 Expr::While(Box::new(Conditional { cond, then, r#else: None }))
             }
 
         rule if_else_expr() -> Expr
-            = "if" _ cond:expr() _? then:expr() _? r#else:expr() {
+            = "if" _ cond:scalar_expr() _? then:block_expr() _? "else" _? r#else:block_expr() {
                 Expr::If(Box::new(Conditional { cond, then, r#else: Some(r#else) }))
             }
         rule if_no_else_expr() -> Expr
-            = "if" _ cond:expr() _? then:expr() {
+            = "if" _ cond:scalar_expr() _? then:block_expr() {
                 Expr::If(Box::new(Conditional { cond, then, r#else: None }))
             }
 
@@ -257,7 +258,7 @@ peg::parser! {
         rule index_expr() -> Expr
             = "%" ident:ident() { Expr::ListCompIndex(ident.to_owned()) }
         rule length_expr() -> Expr
-            = "#" expr:expr() { Expr::Length(Box::new(expr)) }
+            = "#" expr:scalar_expr() { Expr::Length(Box::new(expr)) }
         rule ref_expr() -> Expr
             = name:ident() { Expr::Ref(name.to_owned()) }
         rule char_literal_expr() -> Expr
