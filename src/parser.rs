@@ -207,7 +207,10 @@ peg::parser! {
         rule scalar_expr() -> Expr
             = (parens_expr() / tuple_expr() / call_pat_expr() / char_literal_expr() /
                list_comprehension_expr() / list_literal_expr() / string_literal_expr() /
-               int_literal_expr() / this_el_expr() / index_expr() / length_expr() / ref_expr())
+               int_literal_expr() / callable_expr() / length_expr())
+
+        rule callable_expr() -> Expr
+            = this_el_expr() / index_expr() / ref_expr()
 
         rule parens_expr() -> Expr
             = "(" _? expr:expr() _? ")" { expr }
@@ -217,8 +220,8 @@ peg::parser! {
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
-            = name:ident() _? arg:scalar_expr() {
-                Expr::CallPat(Box::new(Expr::Ref(name.to_owned())), Box::new(arg))
+            = pat:callable_expr() _? arg:scalar_expr() {
+                Expr::CallPat(Box::new(pat), Box::new(arg))
             }
 
         rule list_comprehension_expr() -> Expr
@@ -279,7 +282,7 @@ peg::parser! {
             = int:$("0" / "-"? ['1' ..= '9']+ ['0' ..= '9']*) {? int.parse().or(Err("not a number")) }
         rule type_ident() -> &'input str = $(type_ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
         rule type_ident_start() -> &'input str = $(['A'..='Z' | '_']+)
-        rule ident() -> &'input str = $(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
+        rule ident() -> &'input str = !("if" / "while") i:$(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*) { i }
         rule ident_start() -> &'input str = $(['a'..='z' | '_']+)
         rule comma() -> () = _? "," _?
         rule nbspace() = onespace()+

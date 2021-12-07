@@ -36,8 +36,40 @@ impl Pattern for DebugPrint {
     }
 
     fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
-        println!("{:?}", arg);
+        print(&arg);
+        println!();
         Ok(arg)
+    }
+}
+
+fn print(arg: &Value) {
+    match arg {
+        Value::Void => print!("()"),
+        Value::Char(c) => print!("{}", c),
+        Value::Tuple(vals) => {
+            print!("(");
+            if let Some((last, rest)) = vals.split_last() {
+                for val in rest {
+                    print(val);
+                    print!(", ");
+                }
+                print(last);
+            }
+            print!(")");
+        }
+        Value::List(vals) => {
+            print!("[");
+            if let Some((last, rest)) = vals.split_last() {
+                for val in rest {
+                    print(val);
+                    print!(", ");
+                }
+                print(last);
+            }
+            print!("]");
+        }
+        Value::Int(n) => print!("{}", n),
+        Value::Pattern(pat) => print!("<Pat {}>", pat.name()),
     }
 }
 
