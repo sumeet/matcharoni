@@ -24,11 +24,25 @@ impl Scope {
         Scope::Block(HashMap::new())
     }
 
-    fn set(&mut self, name: String, value: Value) -> anyhow::Result<()> {
+    fn set(&mut self, name: String, value: Value) {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 map.insert(name.clone(), value);
-                Ok(())
+            }
+        }
+    }
+
+    fn has_var(&self, name: &str) -> bool {
+        match self {
+            Scope::Block(map) | Scope::ListComp { map, .. } => map.contains_key(name),
+        }
+    }
+
+    fn mut_or_default(&mut self, name: &str) -> &mut Value {
+        match self {
+            Scope::Block(map) | Scope::ListComp { map, .. } => {
+                let entry = map.entry(name.to_owned());
+                entry.or_insert(Value::Void)
             }
         }
     }
@@ -47,8 +61,7 @@ impl Interpreter {
             interp
                 .this_scope()
                 .unwrap()
-                .set(name.to_owned(), Value::Pattern(pattern))
-                .unwrap();
+                .set(name.to_owned(), Value::Pattern(pattern));
         }
         interp
     }
@@ -95,10 +108,10 @@ impl Interpreter {
     }
 
     fn define_pattern(&mut self, pat_def: &parser::PatDef) -> anyhow::Result<()> {
-        self.this_scope()?.set(
+        Ok(self.this_scope()?.set(
             pat_def.name.clone(),
             Value::Pattern(Box::new(pat_def.clone())),
-        )
+        ))
     }
 
     fn eval_expr(&mut self, expr: &Expr) -> anyhow::Result<Value> {
@@ -136,8 +149,8 @@ impl Interpreter {
 
     fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Value> {
         self.push_block_scope();
-        let arg = self.eval_expr(arg)?;
         let pat = self.eval_expr(get_pat)?;
+        let arg = self.eval_expr(arg)?;
 
         // hack for list indices
         if let (Value::List(list), Value::Int(i)) = (&pat, &arg) {
@@ -284,10 +297,49 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
 
-    fn eval_assignment(&mut self, var_name: &str, expr: &Expr) -> anyhow::Result<Value> {
-        let val = self.eval_expr(expr)?;
-        self.this_scope()?.set(var_name.to_owned(), val.clone())?;
-        Ok(val)
+    fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Value> {
+        *self.eval_lvalue(lvalue)? = self.eval_expr(expr)?;
+        Ok(Value::Void)
+    }
+
+    fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Value> {
+        Ok(match expr {
+            Expr::Ref(var_name) => {
+                let existing_i = self
+                    .scope
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find_map(|(i, scope)| scope.has_var(var_name).then(|| i));
+                if let Some(i) = existing_i {
+                    &mut self.scope[i]
+                } else {
+                    self.this_scope()?
+                }
+                .mut_or_default(var_name)
+            }
+            Expr::CallPat(get_pat, arg) => {
+                let i = self.eval_expr(arg)?.as_int()?;
+                let pat = self.eval_lvalue(get_pat)?;
+                pat.as_list_mut().map(|l| &mut l[i as usize])?
+            }
+            Expr::IntLiteral(_)
+            | Expr::TupleLiteral(_)
+            | Expr::If(_)
+            | Expr::While(_)
+            | Expr::ListCompEl(_)
+            | Expr::ListCompIndex(_)
+            | Expr::Length(_)
+            | Expr::Block(_)
+            | Expr::Assignment(_, _)
+            | Expr::ListComprehension { .. }
+            | Expr::ListLiteral(_)
+            | Expr::Range(_, _)
+            | Expr::BinOp(_, _, _)
+            | Expr::Comment(_)
+            | Expr::CharLiteral(_)
+            | Expr::StringLiteral(_) => return Err(anyhow::anyhow!("Invalid lvalue: {:?}", expr)),
+        })
     }
 }
 
@@ -326,7 +378,7 @@ impl Pattern for parser::PatDef {
         let matched_pattern = match_pat_def_full(interp, self, arg.clone())?
             .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
         for (name, val) in matched_pattern.bindings {
-            interp.this_scope()?.set(name, val)?;
+            interp.this_scope()?.set(name, val);
         }
         Ok(interp.eval_expr(&matched_pattern.expr)?)
     }
@@ -342,7 +394,7 @@ impl Pattern for parser::PatDef {
         }
         let (matched_pattern, rest) = partial_match.unwrap();
         for (name, val) in matched_pattern.bindings {
-            interp.this_scope()?.set(name, val)?;
+            interp.this_scope()?.set(name, val);
         }
         Ok(Some((interp.eval_expr(&matched_pattern.expr)?, rest)))
     }
@@ -629,6 +681,13 @@ impl Value {
         match self {
             Value::Int(i) => Ok(*i),
             _ => Err(anyhow::anyhow!("not an int")),
+        }
+    }
+
+    fn as_list_mut(&mut self) -> anyhow::Result<&mut Vec<Value>> {
+        match self {
+            Value::List(l) => Ok(l),
+            _ => Err(anyhow::anyhow!("not a list")),
         }
     }
 

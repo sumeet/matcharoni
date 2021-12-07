@@ -62,7 +62,7 @@ pub enum Expr {
     Length(Box<Expr>),
     Ref(String),
     Block(Vec<Expr>),
-    Assignment(String, Box<Expr>),
+    Assignment(Box<Expr>, Box<Expr>),
     ListComprehension { expr: Box<Expr>, over: Box<Expr> },
     ListLiteral(Vec<Expr>),
     CallPat(Box<Expr>, Box<Expr>),
@@ -228,7 +228,7 @@ peg::parser! {
         rule list_literal_expr() -> Expr
             = "[" _? exprs:(expr() ** comma()) _? "]" { Expr::ListLiteral(exprs) }
         rule assignment_expr() -> Expr
-            = name:ident() _? "=" _? expr:expr() { Expr::Assignment(name.to_owned(), Box::new(expr)) }
+            = lvalue:scalar_expr() _? "=" _? expr:expr() { Expr::Assignment(Box::new(lvalue), Box::new(expr)) }
 
         rule block_expr() -> Expr
             = "{" _? exprs:(expr() ** whitespace()) _? "}" { Expr::Block(exprs) }

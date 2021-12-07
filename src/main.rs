@@ -1,4 +1,5 @@
 #![feature(destructuring_assignment)]
+#![feature(map_try_insert)]
 
 mod interp;
 mod parser;
@@ -20,16 +21,23 @@ pat calc_least_commons { [sums@ANY] =>  {
   [(*sums / 2) < (#readings / 2) <- sums]
 }}
 pat bin_le_to_int { [bits@ANY] => {
-  sum [(*bits << (#bits - %bits)) <- bits]
+  sum([(*bits << (#bits - %bits)) <- bits])
 }}
 
 input = read_to_string("./sample")
 readings = readings(input)
 sums = expand(0, #(readings(0)))
 
-for readings {
-  dbg(*readings)
-}
+dbg(sums)
+
+// for readings {
+//   bits = *readings
+//   dbg(bits)
+//   for bits {
+//     dbg(sums(#bits))
+// //     sums(#bits) = sums(#bits) + *bits
+//   }
+// }
 "#;
 
 fn main() -> anyhow::Result<()> {
