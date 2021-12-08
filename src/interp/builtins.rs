@@ -9,6 +9,7 @@ pub fn builtins() -> Vec<(&'static str, Box<dyn Pattern>)> {
         ("read_to_string", Box::new(ReadToString {})),
         ("dbg", Box::new(DebugPrint {})),
         ("push", Box::new(Push {})),
+        ("exit", Box::new(Exit {})),
     ]
 }
 
@@ -93,5 +94,18 @@ impl Pattern for Push {
         let mut list = list.into_list()?;
         list.push(to_add);
         Ok(Value::List(list))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, DynPartialEq)]
+pub struct Exit {}
+
+impl Pattern for Exit {
+    fn name(&self) -> &str {
+        "exit"
+    }
+
+    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+        std::process::exit(arg.as_int()? as _);
     }
 }

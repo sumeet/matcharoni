@@ -162,14 +162,20 @@ impl Interpreter {
     }
 
     fn eval_bin_op(&mut self, lhs: &Expr, op: Op, rhs: &Expr) -> anyhow::Result<Value> {
-        let lhs = self.eval_expr(lhs)?.as_int()?;
-        let rhs = self.eval_expr(rhs)?.as_int()?;
+        let lhs = self.eval_expr(lhs)?;
+        let rhs = self.eval_expr(rhs)?;
+
+        if op == Op::Eq {
+            return Ok(Value::Int((lhs == rhs).into()));
+        }
+
+        let lhs = lhs.as_int()?;
+        let rhs = rhs.as_int()?;
         match op {
             Op::Add => Ok(Value::Int(lhs + rhs)),
             Op::Sub => Ok(Value::Int(lhs - rhs)),
             Op::Mul => Ok(Value::Int(lhs * rhs)),
             Op::Div => Ok(Value::Int(lhs / rhs)),
-            Op::Eq => Ok(Value::Int((lhs == rhs).into())),
             Op::Neq => Ok(Value::Int((lhs != rhs).into())),
             Op::Lt => Ok(Value::Int((lhs < rhs).into())),
             Op::Lte => Ok(Value::Int((lhs <= rhs).into())),
@@ -179,6 +185,7 @@ impl Interpreter {
             Op::Or => Ok(Value::Int((lhs != 0 || rhs != 0).into())),
             Op::Pow => Ok(Value::Int(lhs.pow(rhs as _))),
             Op::Shl => Ok(Value::Int(lhs << rhs)),
+            Op::Eq => unreachable!(),
         }
     }
 
@@ -319,7 +326,7 @@ impl Interpreter {
                 bail!("tried to assign tuple into {:?}, got {:?}", exprs, result);
             }
         } else {
-            *self.eval_lvalue(lvalue)? = self.eval_expr(expr)?;
+            *self.eval_lvalue(lvalue)? = result;
         }
 
         Ok(Value::Void)
@@ -341,6 +348,22 @@ impl Interpreter {
                 }
                 .mut_or_default(var_name)
             }
+            Expr::Ref(Ref::ListCompEl(box search_ref)) => {
+                // TODO: duped from eval_ref_list_comp_el
+                self.scope
+                    .iter_mut()
+                    .rev()
+                    .find_map(|scope| match scope {
+                        Scope::ListComp {
+                            map: _,
+                            r#ref: Some(r#ref),
+                            index,
+                            list,
+                        } if r#ref == search_ref => list.get_mut(*index),
+                        _ => None,
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
+            }
             Expr::CallPat(get_pat, arg) => {
                 let i = self.eval_expr(arg)?.as_int()?;
                 let pat = self.eval_lvalue(get_pat)?;
@@ -348,7 +371,6 @@ impl Interpreter {
             }
             Expr::IntLiteral(_)
             | Expr::Ref(Ref::ListCompIndex(_))
-            | Expr::Ref(Ref::ListCompEl(_))
             | Expr::TupleLiteral(_)
             | Expr::If(_)
             | Expr::While(_)
