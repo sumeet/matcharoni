@@ -148,8 +148,11 @@ peg::parser! {
         rule binding() -> Binding
             = concat_binding() / scalar_binding()
 
+        #[cache_left_rec]
         rule concat_binding() -> Binding
-            = binding1:scalar_binding() _? "~" _? binding2:scalar_binding() {
+            = binding1:concat_binding() _? "~" _? binding2:scalar_binding() {
+                Binding::Concat(Box::new(binding1), Box::new(binding2))
+            } / binding1:scalar_binding() _? "~" _? binding2:scalar_binding() {
                 Binding::Concat(Box::new(binding1), Box::new(binding2))
             }
 
