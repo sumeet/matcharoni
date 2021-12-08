@@ -299,7 +299,23 @@ impl Interpreter {
     }
 
     fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Value> {
-        *self.eval_lvalue(lvalue)? = self.eval_expr(expr)?;
+        let result = self.eval_expr(expr)?;
+
+        if let Expr::TupleLiteral(exprs) = lvalue {
+            if let Value::Tuple(results) = result {
+                if exprs.len() != results.len() {
+                    bail!("Tuple length mismatch {:?} {:?}", exprs, results);
+                }
+                for (inner_lvalue, value) in exprs.iter().zip(results.into_iter()) {
+                    *self.eval_lvalue(inner_lvalue)? = value;
+                }
+            } else {
+                bail!("tried to assign tuple into {:?}, got {:?}", exprs, result);
+            }
+        } else {
+            *self.eval_lvalue(lvalue)? = self.eval_expr(expr)?;
+        }
+
         Ok(Value::Void)
     }
 
@@ -555,8 +571,6 @@ fn match_full(
                     if rest.is_empty() {
                         Some(matched)
                     } else {
-                        println!("the binding was {:?}", binding);
-                        println!("some stuff remaining...: {:?}", rest);
                         None
                     }
                 } else {
