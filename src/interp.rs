@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
 mod builtins;
+use builtins::print;
 
 #[derive(Debug)]
 enum Scope {
@@ -375,8 +376,9 @@ impl Pattern for parser::PatDef {
     }
 
     fn match_full(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
-        let matched_pattern = match_pat_def_full(interp, self, arg.clone())?
-            .ok_or_else(|| anyhow::anyhow!("Pattern {:?} not matched on {:?}", self.name(), arg))?;
+        let matched_pattern = match_pat_def_full(interp, self, arg.clone())?.ok_or_else(|| {
+            anyhow::anyhow!("Pattern {:?} not matched on {}", self.name(), print(&arg))
+        })?;
         interp.push_block_scope();
         for (name, val) in matched_pattern.bindings {
             interp.this_scope()?.set(name, val);
@@ -553,6 +555,8 @@ fn match_full(
                     if rest.is_empty() {
                         Some(matched)
                     } else {
+                        println!("the binding was {:?}", binding);
+                        println!("some stuff remaining...: {:?}", rest);
                         None
                     }
                 } else {
@@ -673,14 +677,10 @@ fn match_partial(
                 None => {}
             }
             if let Some(ListLenBinding::Exact(_)) = len_binding {
-                return if !rest.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some((
-                        Match::unnamed(Value::List(matched)).with_inner_matches(inners),
-                        rest,
-                    )))
-                };
+                return Ok(Some((
+                    Match::unnamed(Value::List(matched)).with_inner_matches(inners),
+                    rest,
+                )));
             }
             while let Some((inner_match, inner_rest)) =
                 match_partial(interp, rest.clone(), binding)?
