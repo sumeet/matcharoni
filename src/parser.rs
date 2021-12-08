@@ -43,6 +43,24 @@ pub enum Binding {
     Anything,
 }
 
+impl Binding {
+    fn from_string(s: &str) -> Result<Self, &'static str> {
+        let mut chars = s.chars();
+        let (first, rest) = chars
+            .next()
+            .map(|c| (c, chars.as_str()))
+            .ok_or_else(|| "can't bind an empty string")?;
+        Ok(if rest.is_empty() {
+            Binding::Char(first)
+        } else {
+            Binding::Concat(
+                Box::new(Binding::Char(first)),
+                Box::new(Binding::from_string(rest)?),
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListLenBinding {
     Exact(usize),
@@ -157,7 +175,7 @@ peg::parser! {
             }
 
         rule scalar_binding() -> Binding
-            = (shovel_binding() / named_binding() / char_binding() / binding_in_parens() /
+            = (shovel_binding() / named_binding() / char_binding() / string_binding() /  binding_in_parens() /
                tuple_binding() / concat_list_binding() / list_binding() / any_binding() /
                type_binding() / ref_binding())
 
@@ -192,6 +210,8 @@ peg::parser! {
             }
         rule char_binding() -> Binding
             = char:char_lit() { Binding::Char(char) }
+        rule string_binding() -> Binding
+            = string:string_lit() {? Ok(Binding::from_string(&string)?) }
         rule any_binding() -> Binding
             = "ANY" { Binding::Anything }
         // TODO: actually support type bindings
