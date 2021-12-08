@@ -50,6 +50,13 @@ pub enum ListLenBinding {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Ref {
+    Name(String),
+    ListCompEl(Box<Ref>),
+    ListCompIndex(Box<Ref>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Comment(String),
     CharLiteral(char),
@@ -58,10 +65,8 @@ pub enum Expr {
     TupleLiteral(Vec<Expr>),
     If(Box<Conditional>),
     While(Box<Conditional>),
-    ListCompEl(String),
-    ListCompIndex(String),
     Length(Box<Expr>),
-    Ref(String),
+    Ref(Ref),
     Block(Vec<Expr>),
     Assignment(Box<Expr>, Box<Expr>),
     ListComprehension { expr: Box<Expr>, over: Box<Expr> },
@@ -197,7 +202,7 @@ peg::parser! {
         rule expr() -> Expr
             = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() /
                if_else_expr() / if_no_else_expr() / for_expr() / while_expr() / scalar_expr() /
-               this_el_expr() / block_expr())
+               block_expr())
 
         rule bin_op_expr() -> Expr
             = left:scalar_expr() _? op:op() _? right:scalar_expr() {
@@ -221,7 +226,7 @@ peg::parser! {
                int_literal_expr() / callable_expr() / length_expr())
 
         rule callable_expr() -> Expr
-            = this_el_expr() / index_expr() / ref_expr()
+            = ref_expr()
 
         rule parens_expr() -> Expr
             = "(" _? expr:expr() _? ")" { expr }
@@ -267,19 +272,25 @@ peg::parser! {
                 Expr::If(Box::new(Conditional { cond, then, r#else: None }))
             }
 
-        rule this_el_expr() -> Expr
-            = "*" ident:ident() { Expr::ListCompEl(ident.to_owned()) }
-        rule index_expr() -> Expr
-            = "%" ident:ident() { Expr::ListCompIndex(ident.to_owned()) }
         rule length_expr() -> Expr
             = "#" expr:scalar_expr() { Expr::Length(Box::new(expr)) }
         rule ref_expr() -> Expr
-            = name:ident() { Expr::Ref(name.to_owned()) }
+            = r#ref:ref() { Expr::Ref(r#ref) }
         rule char_literal_expr() -> Expr
             = char_lit:char_lit() { Expr::CharLiteral(char_lit) }
         rule string_literal_expr() -> Expr
             = string_lit:string_lit() { Expr::StringLiteral(string_lit) }
         rule int_literal_expr() -> Expr = int:int() { Expr::IntLiteral(int) }
+
+        rule ref() -> Ref
+            = name_ref() / list_comp_el_ref() / list_comp_index_ref()
+
+        rule name_ref() -> Ref
+            = name:ident() { Ref::Name(name.to_owned()) }
+        rule list_comp_el_ref() -> Ref
+            = "*" r#ref:ref() { Ref::ListCompEl(Box::new(r#ref)) }
+        rule list_comp_index_ref() -> Ref
+            = "%" r#ref:ref() { Ref::ListCompIndex(Box::new(r#ref)) }
 
         rule string_lit() -> String
             = str:$("\"" (!['"'][_] / "\"\"")* "\"") {?

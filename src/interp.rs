@@ -1,5 +1,5 @@
 use crate::parser;
-use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, PatDef, Statement};
+use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, PatDef, Ref, Statement};
 use anyhow::bail;
 use dyn_clone::DynClone;
 use dyn_partial_eq::*;
@@ -14,7 +14,7 @@ enum Scope {
     // should values be Rcd / Gcd?
     Block(HashMap<String, Value>),
     ListComp {
-        name: Option<String>,
+        r#ref: Option<Ref>,
         index: usize,
         list: Vec<Value>,
         map: HashMap<String, Value>,
@@ -68,10 +68,10 @@ impl Interpreter {
         interp
     }
 
-    fn push_list_comp_scope(&mut self, name: Option<String>, list: Vec<Value>) {
+    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: Vec<Value>) {
         self.scope.push(Scope::ListComp {
             map: HashMap::new(),
-            name,
+            r#ref,
             index: 0,
             list,
         });
@@ -124,10 +124,8 @@ impl Interpreter {
             Expr::IntLiteral(i) => Value::Int(*i),
             Expr::If(cond) => self.eval_if(cond)?,
             Expr::While(cond) => self.eval_while(cond)?,
-            Expr::ListCompEl(var_name) => self.eval_list_comp_el(var_name)?,
-            Expr::ListCompIndex(var_name) => self.eval_list_comp_index(var_name)?,
             Expr::Length(expr) => Value::Int(self.eval_expr(expr)?.as_list()?.len() as _),
-            Expr::Ref(var_name) => self.eval_ref(var_name)?,
+            Expr::Ref(r#ref) => self.eval_ref(r#ref)?,
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
             Expr::ListComprehension { expr, over } => self.eval_list_comp(expr, over)?,
@@ -231,7 +229,15 @@ impl Interpreter {
         Ok(Value::Void)
     }
 
-    fn eval_ref(&mut self, var_name: &str) -> anyhow::Result<Value> {
+    fn eval_ref(&mut self, r#ref: &Ref) -> anyhow::Result<Value> {
+        Ok(match r#ref {
+            Ref::Name(var_name) => self.eval_ref_name(var_name)?,
+            Ref::ListCompEl(r#ref) => self.eval_ref_list_comp_el(r#ref)?,
+            Ref::ListCompIndex(r#ref) => self.eval_list_comp_index(r#ref)?,
+        })
+    }
+
+    fn eval_ref_name(&mut self, var_name: &str) -> anyhow::Result<Value> {
         self.scope
             .iter()
             .rev()
@@ -239,7 +245,7 @@ impl Interpreter {
                 Scope::Block(scope) => scope.get(var_name).cloned(),
                 Scope::ListComp {
                     map: _,
-                    name: Some(name),
+                    r#ref: Some(Ref::Name(name)),
                     index: _,
                     list,
                 } if name == var_name => Some(Value::List(list.clone())),
@@ -248,40 +254,23 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
 
-    fn eval_list_comp(&mut self, expr: &Expr, over: &Expr) -> anyhow::Result<Value> {
-        let name = match over {
-            Expr::Ref(name) => Some(name.to_string()),
-            _ => None,
-        };
-        let list = self.eval_expr(over)?.into_list()?;
-        let len = list.len();
-        let mut ret = Vec::with_capacity(len);
-        self.push_list_comp_scope(name, list);
-        for _ in 0..len {
-            ret.push(self.eval_expr(expr)?);
-            self.incr_list_comp_index()?;
-        }
-        self.pop_scope();
-        Ok(Value::List(ret))
-    }
-
-    fn eval_list_comp_el(&mut self, var_name: &str) -> anyhow::Result<Value> {
+    fn eval_ref_list_comp_el(&mut self, search_ref: &Ref) -> anyhow::Result<Value> {
         self.scope
             .iter()
             .rev()
             .find_map(|scope| match scope {
                 Scope::ListComp {
                     map: _,
-                    name: Some(name),
+                    r#ref: Some(r#ref),
                     index,
                     list,
-                } if name == var_name => list.get(*index).cloned(),
+                } if r#ref == search_ref => list.get(*index).cloned(),
                 _ => None,
             })
-            .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
+            .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
     }
 
-    fn eval_list_comp_index(&mut self, var_name: &str) -> anyhow::Result<Value> {
+    fn eval_list_comp_index(&mut self, search_ref: &Ref) -> anyhow::Result<Value> {
         // TODO: duped with eval_list_comp_el
         self.scope
             .iter()
@@ -289,13 +278,30 @@ impl Interpreter {
             .find_map(|scope| match scope {
                 Scope::ListComp {
                     map: _,
-                    name: Some(name),
+                    r#ref: Some(r#ref),
                     index,
                     list: _,
-                } if name == var_name => Some(Value::Int(*index as _)),
+                } if r#ref == search_ref => Some(Value::Int(*index as _)),
                 _ => None,
             })
-            .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
+            .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
+    }
+
+    fn eval_list_comp(&mut self, expr: &Expr, over: &Expr) -> anyhow::Result<Value> {
+        let r#ref = match over {
+            Expr::Ref(r#ref) => Some(r#ref.clone()),
+            _ => None,
+        };
+        let list = self.eval_expr(over)?.into_list()?;
+        let len = list.len();
+        let mut ret = Vec::with_capacity(len);
+        self.push_list_comp_scope(r#ref, list);
+        for _ in 0..len {
+            ret.push(self.eval_expr(expr)?);
+            self.incr_list_comp_index()?;
+        }
+        self.pop_scope();
+        Ok(Value::List(ret))
     }
 
     fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Value> {
@@ -321,7 +327,7 @@ impl Interpreter {
 
     fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Value> {
         Ok(match expr {
-            Expr::Ref(var_name) => {
+            Expr::Ref(Ref::Name(var_name)) => {
                 let existing_i = self
                     .scope
                     .iter()
@@ -341,11 +347,11 @@ impl Interpreter {
                 pat.as_list_mut().map(|l| &mut l[i as usize])?
             }
             Expr::IntLiteral(_)
+            | Expr::Ref(Ref::ListCompIndex(_))
+            | Expr::Ref(Ref::ListCompEl(_))
             | Expr::TupleLiteral(_)
             | Expr::If(_)
             | Expr::While(_)
-            | Expr::ListCompEl(_)
-            | Expr::ListCompIndex(_)
             | Expr::Length(_)
             | Expr::Block(_)
             | Expr::Assignment(_, _)
@@ -606,7 +612,7 @@ fn match_full(
         // TODO: this can be an expr instead of a ref
         Binding::Ref(name) => {
             // TODO: this function needs to return a Result instead of panicking in here
-            let pat = interp.eval_ref(name);
+            let pat = interp.eval_ref_name(&name);
             let pat = pat.unwrap_or_else(|_| panic!("ref {} not found", name));
             let pat = pat
                 .as_pattern()
@@ -718,7 +724,7 @@ fn match_partial(
             .map(|(m, rest)| (m.add_name(MatchName::Scalar(name.to_owned())), rest)),
         // TODO: Binding::Ref could just be Binding::Expr
         Binding::Ref(name) => {
-            let pat = interp.eval_ref(name)?;
+            let pat = interp.eval_ref_name(name)?;
             let pat = pat.as_pattern()?;
             let matched = pat.match_partial(interp, vals)?;
             if matched.is_none() {
