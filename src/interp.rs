@@ -517,7 +517,7 @@ impl Match {
                         list.push(value);
                     } else {
                         shovels.insert(name.to_owned(), matches.len());
-                        matches.push((name.to_owned(), Value::List(vec![value.clone()])));
+                        matches.push((name, Value::List(vec![value.clone()])));
                     }
                 }
             }
@@ -675,6 +675,10 @@ fn match_partial(
                 inners.push(inner_match.clone());
                 matched.push(inner_match.value);
                 rest = inner_rest;
+
+                if rest.is_empty() {
+                    break;
+                }
             }
             Some((
                 Match::unnamed(Value::List(matched)).with_inner_matches(inners),
