@@ -657,17 +657,30 @@ fn match_partial(
             let mut matched = vec![];
             let mut inners = vec![];
             let mut rest = vals.clone();
-            if let Some(ListLenBinding::Min(min)) = len_binding {
-                for _ in 0..*min {
-                    let inner = match_partial(interp, rest, binding)?;
-                    if inner.is_none() {
-                        return Ok(None);
+            match len_binding {
+                Some(ListLenBinding::Min(size)) | Some(ListLenBinding::Exact(size)) => {
+                    for _ in 0..*size {
+                        let inner = match_partial(interp, rest, binding)?;
+                        if inner.is_none() {
+                            return Ok(None);
+                        }
+                        let (inner_match, inner_rest) = inner.unwrap();
+                        inners.push(inner_match.clone());
+                        matched.push(inner_match.value);
+                        rest = inner_rest;
                     }
-                    let (inner_match, inner_rest) = inner.unwrap();
-                    inners.push(inner_match.clone());
-                    matched.push(inner_match.value);
-                    rest = inner_rest;
                 }
+                None => {}
+            }
+            if let Some(ListLenBinding::Exact(_)) = len_binding {
+                return if !rest.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some((
+                        Match::unnamed(Value::List(matched)).with_inner_matches(inners),
+                        rest,
+                    )))
+                };
             }
             while let Some((inner_match, inner_rest)) =
                 match_partial(interp, rest.clone(), binding)?

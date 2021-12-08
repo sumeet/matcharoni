@@ -20,7 +20,8 @@ syntax keyword roniLoopKeywords while if else break continue loop for
 syntax region roniCommentLine start="//" end="$"   contains=roniTodos
 " syntax region roniDirective start="%" end=" "
 
-syntax match roniSpecial		"[#$&][a-z_][a-z0-9_]*\>"
+" TODO: this doesn't work exactly right
+syntax match roniSpecial		"[#~*%@]\ze[a-zA-Z0-9_]*\|<@"
 syntax match roniIdent		"\<[a-z_][a-z0-9_]*\>"
 syntax match roniType		"\<[A-Z_][a-z0-9_]*\>"
 

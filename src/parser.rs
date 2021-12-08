@@ -45,8 +45,8 @@ pub enum Binding {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListLenBinding {
+    Exact(usize),
     Min(usize),
-    ToName(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -166,8 +166,8 @@ peg::parser! {
         rule list_len_binding() -> ListLenBinding
             = "{" _? inner:list_len_binding_inner() _? "}" { inner }
         rule list_len_binding_inner() -> ListLenBinding
-            = name:ident() { ListLenBinding::ToName(name.to_owned()) }
-            / min:int() "+" { ListLenBinding::Min(min as _) }
+            = min:int() "+" { ListLenBinding::Min(min as _) }
+            / exact:int() { ListLenBinding::Exact(exact as _) }
 
         rule named_binding() -> Binding
             = name:ident() _? "@" _? binding:scalar_binding() {
