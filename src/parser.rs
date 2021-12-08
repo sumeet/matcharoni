@@ -204,8 +204,11 @@ peg::parser! {
                if_else_expr() / if_no_else_expr() / for_expr() / while_expr() / scalar_expr() /
                block_expr())
 
+        #[cache_left_rec]
         rule bin_op_expr() -> Expr
-            = left:scalar_expr() _? op:op() _? right:scalar_expr() {
+            = left:bin_op_expr() _? op:op() _? right:scalar_expr() {
+                Expr::BinOp(Box::new(left), op, Box::new(right))
+            } / left:scalar_expr() _? op:op() _? right:scalar_expr() {
                 Expr::BinOp(Box::new(left), op, Box::new(right))
             }
 
