@@ -1,6 +1,7 @@
 use crate::interp::{Interpreter, Pattern, Value};
 use dyn_partial_eq::DynPartialEq;
 use itertools::Itertools;
+use std::fmt::Write;
 use std::fs::read_to_string;
 
 pub fn builtins() -> Vec<(&'static str, Box<dyn Pattern>)> {
@@ -36,41 +37,43 @@ impl Pattern for DebugPrint {
     }
 
     fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
-        print(&arg);
-        println!();
+        println!("{}", print(&arg));
         Ok(arg)
     }
 }
 
-fn print(arg: &Value) {
+pub fn print(arg: &Value) -> String {
+    let mut s = String::new();
     match arg {
-        Value::Void => print!("()"),
-        Value::Char(c) => print!("'{}'", c),
+        Value::Void => write!(&mut s, "()"),
+        Value::Char(c) => write!(&mut s, "'{}'", c),
         Value::Tuple(vals) => {
-            print!("(");
+            write!(&mut s, "(").unwrap();
             if let Some((last, rest)) = vals.split_last() {
                 for val in rest {
-                    print(val);
-                    print!(", ");
+                    write!(&mut s, "{}", print(val)).unwrap();
+                    write!(&mut s, ", ").unwrap();
                 }
-                print(last);
+                write!(&mut s, "{}", print(last)).unwrap();
             }
-            print!(")");
+            write!(&mut s, ")")
         }
         Value::List(vals) => {
-            print!("[");
+            write!(&mut s, "[").unwrap();
             if let Some((last, rest)) = vals.split_last() {
                 for val in rest {
-                    print(val);
-                    print!(", ");
+                    write!(&mut s, "{}", print(val)).unwrap();
+                    write!(&mut s, ", ").unwrap();
                 }
-                print(last);
+                write!(&mut s, "{}", print(last)).unwrap();
             }
-            print!("]");
+            write!(&mut s, "]")
         }
-        Value::Int(n) => print!("{}", n),
-        Value::Pattern(pat) => print!("<Pat {}>", pat.name()),
+        Value::Int(n) => write!(&mut s, "{}", n),
+        Value::Pattern(pat) => write!(&mut s, "<Pat {}>", pat.name()),
     }
+    .unwrap();
+    s
 }
 
 #[derive(Debug, Clone, PartialEq, DynPartialEq)]
