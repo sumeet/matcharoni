@@ -127,7 +127,12 @@ peg::parser! {
         rule pat_def_statement() -> Statement
             = pat_def:pat_def() { Statement::PatDef(pat_def) }
 
-        rule pat_def() -> PatDef
+        rule pat_def() -> PatDef = one_arm_pat_def() / multi_arm_pat_def()
+
+        rule one_arm_pat_def() -> PatDef
+            = "pat" _? name:ident() _? r#match:match() { PatDef { name: name.to_owned(), matches: vec![r#match] } }
+
+        rule multi_arm_pat_def() -> PatDef
             = "pat" _? name:ident() _? "{" _ matches:(match() ** comma()) _? "}" {
                 PatDef { name: name.to_owned(), matches }
             }
