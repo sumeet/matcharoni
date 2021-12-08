@@ -200,7 +200,7 @@ peg::parser! {
         rule expr_statement() -> Statement = expr:expr() { Statement::Expr(expr) }
 
         rule expr() -> Expr
-            = (comment_expr() / bin_op_expr() / range_expr() / assignment_expr() /
+            = (comment_expr() / bin_op_expr() / range_expr() / subscript_expr() / assignment_expr() /
                if_else_expr() / if_no_else_expr() / for_expr() / while_expr() / scalar_expr() /
                block_expr())
 
@@ -237,6 +237,11 @@ peg::parser! {
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
             = pat:callable_expr() _? arg:scalar_expr() {
+                Expr::CallPat(Box::new(pat), Box::new(arg))
+            }
+
+        rule subscript_expr() -> Expr
+            = pat:scalar_expr() _? "[" _? arg:scalar_expr() _? "]" {
                 Expr::CallPat(Box::new(pat), Box::new(arg))
             }
 
