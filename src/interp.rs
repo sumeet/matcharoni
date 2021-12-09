@@ -19,7 +19,7 @@ enum Scope {
     ListComp {
         r#ref: Option<Ref>,
         index: usize,
-        list: GcCell<Vec<GcCell<Gc<Value>>>>,
+        list: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
         map: HashMap<String, Gc<GcCell<Gc<Value>>>>,
     },
 }
@@ -73,7 +73,11 @@ impl Interpreter {
         interp
     }
 
-    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: GcCell<Vec<GcCell<Gc<Value>>>>) {
+    fn push_list_comp_scope(
+        &mut self,
+        r#ref: Option<Ref>,
+        list: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
+    ) {
         self.scope.push(Scope::ListComp {
             map: HashMap::new(),
             r#ref,
@@ -127,7 +131,7 @@ impl Interpreter {
             Expr::CharLiteral(c) => Gc::new(Value::Char(*c)),
             Expr::StringLiteral(s) => Gc::new(Value::List(GcCell::new(
                 s.chars()
-                    .map(|c| GcCell::new(Gc::new(Value::Char(c))))
+                    .map(|c| Gc::new(GcCell::new(Gc::new(Value::Char(c)))))
                     .collect(),
             ))),
             Expr::IntLiteral(i) => Gc::new(Value::Int(*i)),
@@ -153,8 +157,8 @@ impl Interpreter {
             Expr::ListLiteral(exprs) => Gc::new(Value::List(GcCell::new(
                 exprs
                     .iter()
-                    .map(|e| Ok(GcCell::new(self.eval_expr(e)?)))
-                    .collect::<anyhow::Result<Vec<GcCell<Gc<Value>>>>>()?,
+                    .map(|e| Ok(Gc::new(GcCell::new(self.eval_expr(e)?))))
+                    .collect::<anyhow::Result<Vec<Gc<GcCell<Gc<Value>>>>>>()?,
             ))),
             Expr::CallPat(get_pat, arg) => self.eval_call_pat(get_pat, arg)?,
             Expr::Range(low, high, range_type) => self.eval_range(low, high, *range_type)?,
@@ -215,10 +219,10 @@ impl Interpreter {
         let (low, high) = if lhs < rhs { (lhs, rhs) } else { (rhs, lhs) };
         Ok(Gc::new(Value::List(GcCell::new(match range_type {
             RangeType::Exclusive => (low..high)
-                .map(|i| GcCell::new(Gc::new(Value::Int(i))))
+                .map(|i| Gc::new(GcCell::new(Gc::new(Value::Int(i)))))
                 .collect(),
             RangeType::Inclusive => (low..=high)
-                .map(|i| GcCell::new(Gc::new(Value::Int(i))))
+                .map(|i| Gc::new(GcCell::new(Gc::new(Value::Int(i)))))
                 .collect(),
         }))))
     }
@@ -335,13 +339,13 @@ impl Interpreter {
             (Expr::Ref(r#ref), None) | (_, Some(Expr::Ref(r#ref))) => Some(r#ref.clone()),
             _ => None,
         };
-        let mut val = self.eval_expr(over)?;
+        let val = self.eval_expr(over)?;
         let list = val.as_list_cell()?;
         let len = list.borrow().len();
         let mut ret = Vec::with_capacity(len);
         self.push_list_comp_scope(r#ref, val.as_list_cell()?);
         for _ in 0..len {
-            ret.push(GcCell::new(self.eval_expr(expr)?));
+            ret.push(Gc::new(GcCell::new(self.eval_expr(expr)?)));
             self.incr_list_comp_index()?;
         }
         self.pop_scope();
@@ -387,31 +391,29 @@ impl Interpreter {
                 .mut_or_default(var_name)
             }
             Expr::Ref(Ref::ListCompEl(box search_ref)) => {
-                unreachable!()
                 // // TODO: duped from eval_ref_list_comp_el
-                // self.scope
-                //     .iter()
-                //     .rev()
-                //     .find_map(|scope| match scope {
-                //         Scope::ListComp {
-                //             map: _,
-                //             r#ref: Some(r#ref),
-                //             index,
-                //             list,
-                //         } if r#ref == search_ref => {
-                //             list.borrow_mut().get_mut(*index).map(|v| v.clone())
-                //         }
-                //         _ => None,
-                //     })
-                //     .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
+                self.scope
+                    .iter()
+                    .rev()
+                    .find_map(|scope| match scope {
+                        Scope::ListComp {
+                            map: _,
+                            r#ref: Some(r#ref),
+                            index,
+                            list,
+                        } if r#ref == search_ref => {
+                            list.borrow_mut().get(*index).map(|v| v.clone())
+                        }
+                        _ => None,
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
             }
             Expr::CallPat(get_pat, arg) => {
-                unreachable!()
-                // let i = self.eval_expr(arg)?.as_int()?;
-                // let pat = self.eval_lvalue(get_pat)?;
-                // let pat = pat.borrow();
-                // pat.as_list_cell()
-                //     .map(|l| &mut l.borrow_mut()[i as usize])?
+                let i = self.eval_expr(arg)?.as_int()?;
+                let pat = self.eval_lvalue(get_pat)?;
+                let pat = pat.borrow();
+                pat.as_list_cell()
+                    .map(|l| l.borrow_mut()[i as usize].clone())?
             }
             Expr::IntLiteral(_)
             | Expr::Ref(Ref::ListCompIndex(_))
@@ -437,7 +439,7 @@ pub enum Value {
     Void,
     Char(char),
     Tuple(Vec<Gc<Value>>),
-    List(GcCell<Vec<GcCell<Gc<Value>>>>),
+    List(GcCell<Vec<Gc<GcCell<Gc<Value>>>>>),
     Int(i128),
     Pattern(#[unsafe_ignore_trace] Box<dyn Pattern>),
 }
@@ -449,8 +451,8 @@ pub trait Pattern: Debug + DynClone {
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: GcCell<Vec<GcCell<Gc<Value>>>>,
-    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
+        arg: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<Gc<GcCell<Gc<Value>>>>>)>> {
         self.match_full(interp, Gc::new(Value::List(arg)))
             .map(|val| Some((val, GcCell::new(vec![]))))
     }
@@ -479,8 +481,8 @@ impl Pattern for parser::PatDef {
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: GcCell<Vec<GcCell<Gc<Value>>>>,
-    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
+        arg: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<Gc<GcCell<Gc<Value>>>>>)>> {
         let partial_match = match_pat_def_partial(interp, self, arg.clone())?;
         if partial_match.is_none() {
             return Ok(None);
@@ -524,8 +526,8 @@ fn match_pat_def_full(
 fn match_pat_def_partial(
     interp: &mut Interpreter,
     pat_def: &PatDef,
-    vals: GcCell<Vec<GcCell<Gc<Value>>>>,
-) -> anyhow::Result<Option<(MatchedPattern, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
+    vals: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
+) -> anyhow::Result<Option<(MatchedPattern, GcCell<Vec<Gc<GcCell<Gc<Value>>>>>)>> {
     for match_arm in &pat_def.matches {
         if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding)? {
             // TODO: duped with match_pat_def_full
@@ -604,12 +606,14 @@ impl Match {
                 MatchName::Shovel(name) => {
                     if let Some(&index) = shovels.get(&name) {
                         let list = matches[index].1.as_list_cell().unwrap();
-                        list.borrow_mut().push(GcCell::new(value));
+                        list.borrow_mut().push(Gc::new(GcCell::new(value)));
                     } else {
                         shovels.insert(name.to_owned(), matches.len());
                         matches.push((
                             name,
-                            Gc::new(Value::List(GcCell::new(vec![GcCell::new(value.clone())]))),
+                            Gc::new(Value::List(GcCell::new(vec![Gc::new(GcCell::new(
+                                value.clone(),
+                            ))]))),
                         ));
                     }
                 }
@@ -703,9 +707,9 @@ fn match_full(
 // returns the remaining unmatched list if any
 fn match_partial(
     interp: &mut Interpreter,
-    vals: GcCell<Vec<GcCell<Gc<Value>>>>,
+    vals: GcCell<Vec<Gc<GcCell<Gc<Value>>>>>,
     binding: &parser::Binding,
-) -> anyhow::Result<Option<(Match, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
+) -> anyhow::Result<Option<(Match, GcCell<Vec<Gc<GcCell<Gc<Value>>>>>)>> {
     Ok(match binding {
         Binding::Anything | Binding::Type(_) | Binding::Char(_) | Binding::Tuple(_) => {
             let vals = vals.borrow();
@@ -759,7 +763,7 @@ fn match_partial(
                         }
                         let (inner_match, inner_rest) = inner.unwrap();
                         inners.push(inner_match.clone());
-                        matched.push(GcCell::new(inner_match.value));
+                        matched.push(Gc::new(GcCell::new(inner_match.value)));
                         rest = inner_rest;
                     }
                 }
@@ -776,7 +780,7 @@ fn match_partial(
                 match_partial(interp, rest.clone(), binding)?
             {
                 inners.push(inner_match.clone());
-                matched.push(GcCell::new(inner_match.value));
+                matched.push(Gc::new(GcCell::new(inner_match.value)));
                 rest = inner_rest;
 
                 if rest.borrow().is_empty() {
@@ -838,7 +842,7 @@ impl Value {
         }
     }
 
-    fn as_list_cell(&self) -> anyhow::Result<GcCell<Vec<GcCell<Gc<Value>>>>> {
+    fn as_list_cell(&self) -> anyhow::Result<GcCell<Vec<Gc<GcCell<Gc<Value>>>>>> {
         match self {
             Value::List(l) => Ok(l.clone()),
             _ => Err(anyhow::anyhow!("{:?} is not a list", self)),

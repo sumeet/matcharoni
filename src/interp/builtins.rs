@@ -27,7 +27,7 @@ impl Pattern for ReadToString {
         Ok(Gc::new(Value::List(GcCell::new(
             read_to_string(filename)?
                 .chars()
-                .map(|c| GcCell::new(Gc::new(Value::Char(c))))
+                .map(|c| Gc::new(GcCell::new(Gc::new(Value::Char(c)))))
                 .collect(),
         ))))
     }
@@ -95,8 +95,8 @@ impl Pattern for Push {
             .into_iter()
             .collect_tuple()
             .ok_or_else(|| anyhow::anyhow!("wrong arguments"))?;
-        let mut list = list.as_list_cell()?;
-        list.borrow_mut().push(GcCell::new(to_add.clone()));
+        let list = list.as_list_cell()?;
+        list.borrow_mut().push(Gc::new(GcCell::new(to_add.clone())));
         Ok(Gc::new(Value::List(list)))
     }
 }
