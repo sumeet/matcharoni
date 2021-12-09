@@ -94,8 +94,14 @@ pub enum Expr {
     },
     ListLiteral(Vec<Expr>),
     CallPat(Box<Expr>, Box<Expr>),
-    Range(Box<Expr>, Box<Expr>),
+    Range(Box<Expr>, Box<Expr>, RangeType),
     BinOp(Box<Expr>, Op, Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum RangeType {
+    Exclusive,
+    Inclusive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -247,7 +253,9 @@ peg::parser! {
 
         rule range_expr() -> Expr
             = start:scalar_expr() _? ".." _? end:scalar_expr() {
-                Expr::Range(Box::new(start), Box::new(end))
+                Expr::Range(Box::new(start), Box::new(end), RangeType::Exclusive)
+            } / start:scalar_expr() _? "..=" _? end:scalar_expr() {
+                Expr::Range(Box::new(start), Box::new(end), RangeType::Inclusive)
             }
 
         rule scalar_expr() -> Expr

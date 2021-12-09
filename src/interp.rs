@@ -1,5 +1,7 @@
 use crate::parser;
-use crate::parser::{Binding, Conditional, Expr, ListLenBinding, Op, PatDef, Ref, Statement};
+use crate::parser::{
+    Binding, Conditional, Expr, ListLenBinding, Op, PatDef, RangeType, Ref, Statement,
+};
 use anyhow::bail;
 use dyn_clone::DynClone;
 use dyn_partial_eq::*;
@@ -146,7 +148,7 @@ impl Interpreter {
                     .collect::<anyhow::Result<Vec<Value>>>()?,
             ),
             Expr::CallPat(get_pat, arg) => self.eval_call_pat(get_pat, arg)?,
-            Expr::Range(low, high) => self.eval_range(low, high)?,
+            Expr::Range(low, high, range_type) => self.eval_range(low, high, *range_type)?,
             Expr::BinOp(lhs, op, rhs) => self.eval_bin_op(lhs, *op, rhs)?,
         })
     }
@@ -193,11 +195,19 @@ impl Interpreter {
         }
     }
 
-    fn eval_range(&mut self, low: &Expr, high: &Expr) -> anyhow::Result<Value> {
+    fn eval_range(
+        &mut self,
+        low: &Expr,
+        high: &Expr,
+        range_type: RangeType,
+    ) -> anyhow::Result<Value> {
         let lhs = self.eval_expr(low)?.as_int()?;
         let rhs = self.eval_expr(high)?.as_int()?;
         let (low, high) = if lhs < rhs { (lhs, rhs) } else { (rhs, lhs) };
-        Ok(Value::List((low..high).map(Value::Int).collect()))
+        Ok(Value::List(match range_type {
+            RangeType::Exclusive => (low..high).map(Value::Int).collect(),
+            RangeType::Inclusive => (low..=high).map(Value::Int).collect(),
+        }))
     }
 
     fn eval_block(&mut self, block: &[Expr]) -> anyhow::Result<Value> {
@@ -393,7 +403,7 @@ impl Interpreter {
             | Expr::Assignment(_, _)
             | Expr::ListComprehension { .. }
             | Expr::ListLiteral(_)
-            | Expr::Range(_, _)
+            | Expr::Range(_, _, _)
             | Expr::BinOp(_, _, _)
             | Expr::Comment(_)
             | Expr::CharLiteral(_)
