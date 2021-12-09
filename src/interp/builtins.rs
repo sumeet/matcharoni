@@ -24,12 +24,12 @@ impl Pattern for ReadToString {
 
     fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
         let filename = arg.collect_string()?;
-        Ok(Gc::new(Value::List(GcCell::new(
+        Ok(Gc::new(Value::List(Gc::new(GcCell::new(
             read_to_string(filename)?
                 .chars()
                 .map(|c| Gc::new(GcCell::new(Gc::new(Value::Char(c)))))
                 .collect(),
-        ))))
+        )))))
     }
 }
 
