@@ -313,23 +313,24 @@ impl Interpreter {
 
     fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Value> {
         let result = self.eval_expr(expr)?;
+        self.assign_into(lvalue, result)?;
+        Ok(Value::Void)
+    }
 
+    fn assign_into(&mut self, lvalue: &Expr, val: Value) -> anyhow::Result<()> {
         if let Expr::TupleLiteral(exprs) = lvalue {
-            if let Value::Tuple(results) = result {
+            if let Value::Tuple(results) = val {
                 if exprs.len() != results.len() {
                     bail!("Tuple length mismatch {:?} {:?}", exprs, results);
                 }
-                for (inner_lvalue, value) in exprs.iter().zip(results.into_iter()) {
-                    *self.eval_lvalue(inner_lvalue)? = value;
+                for (inner_lvalue, inner_value) in exprs.iter().zip(results.into_iter()) {
+                    self.assign_into(inner_lvalue, inner_value)?;
                 }
-            } else {
-                bail!("tried to assign tuple into {:?}, got {:?}", exprs, result);
             }
         } else {
-            *self.eval_lvalue(lvalue)? = result;
+            *self.eval_lvalue(lvalue)? = val;
         }
-
-        Ok(Value::Void)
+        Ok(())
     }
 
     fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Value> {

@@ -262,7 +262,7 @@ peg::parser! {
 
         // TODO: can we () call any expr instead of only names?
         rule call_pat_expr() -> Expr
-            = pat:callable_expr() _? arg:scalar_expr() {
+            = pat:callable_expr() nbspace()? arg:scalar_expr() {
                 Expr::CallPat(Box::new(pat), Box::new(arg))
             }
 
