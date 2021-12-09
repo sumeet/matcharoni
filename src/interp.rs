@@ -15,12 +15,12 @@ use builtins::print;
 #[derive(Debug)]
 enum Scope {
     // should values be Rcd / Gcd?
-    Block(HashMap<String, GcCell<Gc<Value>>>),
+    Block(HashMap<String, Gc<GcCell<Gc<Value>>>>),
     ListComp {
         r#ref: Option<Ref>,
         index: usize,
         list: GcCell<Vec<GcCell<Gc<Value>>>>,
-        map: HashMap<String, GcCell<Gc<Value>>>,
+        map: HashMap<String, Gc<GcCell<Gc<Value>>>>,
     },
 }
 
@@ -32,7 +32,7 @@ impl Scope {
     fn set(&mut self, name: String, value: GcCell<Gc<Value>>) {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
-                map.insert(name.clone(), value);
+                map.insert(name.clone(), Gc::new(value));
             }
         }
     }
@@ -43,11 +43,13 @@ impl Scope {
         }
     }
 
-    fn mut_or_default(&mut self, name: &str) -> &mut GcCell<Gc<Value>> {
+    fn mut_or_default(&mut self, name: &str) -> Gc<GcCell<Gc<Value>>> {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 let entry = map.entry(name.to_owned());
-                entry.or_insert(GcCell::new(Gc::new(Value::Void)))
+                entry
+                    .or_insert(Gc::new(GcCell::new(Gc::new(Value::Void))))
+                    .clone()
             }
         }
     }
@@ -373,7 +375,7 @@ impl Interpreter {
             Expr::Ref(Ref::Name(var_name)) => {
                 let existing_i = self
                     .scope
-                    .iter_mut()
+                    .iter()
                     .enumerate()
                     .rev()
                     .find_map(|(i, scope)| scope.has_var(var_name).then(|| i));
@@ -385,27 +387,31 @@ impl Interpreter {
                 .mut_or_default(var_name)
             }
             Expr::Ref(Ref::ListCompEl(box search_ref)) => {
-                // TODO: duped from eval_ref_list_comp_el
-                self.scope
-                    .iter_mut()
-                    .rev()
-                    .find_map(|scope| match scope {
-                        Scope::ListComp {
-                            map: _,
-                            r#ref: Some(r#ref),
-                            index,
-                            list,
-                        } if r#ref == search_ref => list.borrow_mut().get_mut(*index),
-                        _ => None,
-                    })
-                    .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
+                unreachable!()
+                // // TODO: duped from eval_ref_list_comp_el
+                // self.scope
+                //     .iter()
+                //     .rev()
+                //     .find_map(|scope| match scope {
+                //         Scope::ListComp {
+                //             map: _,
+                //             r#ref: Some(r#ref),
+                //             index,
+                //             list,
+                //         } if r#ref == search_ref => {
+                //             list.borrow_mut().get_mut(*index).map(|v| v.clone())
+                //         }
+                //         _ => None,
+                //     })
+                //     .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
             }
             Expr::CallPat(get_pat, arg) => {
-                let i = self.eval_expr(arg)?.as_int()?;
-                let pat = self.eval_lvalue(get_pat)?;
-                let pat = pat.borrow();
-                pat.as_list_cell()
-                    .map(|l| &mut l.borrow_mut()[i as usize])?
+                unreachable!()
+                // let i = self.eval_expr(arg)?.as_int()?;
+                // let pat = self.eval_lvalue(get_pat)?;
+                // let pat = pat.borrow();
+                // pat.as_list_cell()
+                //     .map(|l| &mut l.borrow_mut()[i as usize])?
             }
             Expr::IntLiteral(_)
             | Expr::Ref(Ref::ListCompIndex(_))
