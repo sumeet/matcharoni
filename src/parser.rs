@@ -266,13 +266,14 @@ peg::parser! {
             = "(" _? exprs:(expr() ** comma()) _? ")" { Expr::TupleLiteral(exprs) }
 
         // TODO: can we () call any expr instead of only names?
+        #[cache_left_rec]
         rule call_pat_expr() -> Expr
-            = pat:callable_expr() nbspace()? arg:scalar_expr() {
+            = pat:(call_pat_expr() / callable_expr()) nbspace()? arg:scalar_expr() {
                 Expr::CallPat(Box::new(pat), Box::new(arg))
             }
 
         rule subscript_expr() -> Expr
-            = pat:scalar_expr() _? "[" _? arg:scalar_expr() _? "]" {
+            = pat:scalar_expr() nbspace()? "[" _? arg:scalar_expr() _? "]" {
                 Expr::CallPat(Box::new(pat), Box::new(arg))
             }
 
