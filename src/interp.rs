@@ -854,13 +854,6 @@ impl Value {
         }
     }
 
-    // fn as_list(&self) -> anyhow::Result<&[GcCell<Gc<Value>>]> {
-    //     match self {
-    //         Value::List(l) => Ok(&(*l).borrow()),
-    //         _ => Err(anyhow::anyhow!("not a list")),
-    //     }
-    // }
-
     fn as_tuple(&self) -> anyhow::Result<&Vec<Gc<Value>>> {
         match self {
             Value::Tuple(l) => Ok(l),
