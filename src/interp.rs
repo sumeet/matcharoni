@@ -5,6 +5,7 @@ use crate::parser::{
 use anyhow::bail;
 use dyn_clone::DynClone;
 use dyn_partial_eq::*;
+use gc::{Finalize, Gc, Trace};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
@@ -14,12 +15,12 @@ use builtins::print;
 #[derive(Debug)]
 enum Scope {
     // should values be Rcd / Gcd?
-    Block(HashMap<String, Value>),
+    Block(HashMap<String, Gc<Value>>),
     ListComp {
         r#ref: Option<Ref>,
         index: usize,
-        list: Vec<Value>,
-        map: HashMap<String, Value>,
+        list: Vec<Gc<Value>>,
+        map: HashMap<String, Gc<Value>>,
     },
 }
 
@@ -28,7 +29,7 @@ impl Scope {
         Scope::Block(HashMap::new())
     }
 
-    fn set(&mut self, name: String, value: Value) {
+    fn set(&mut self, name: String, value: Gc<Value>) {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 map.insert(name.clone(), value);
@@ -42,11 +43,11 @@ impl Scope {
         }
     }
 
-    fn mut_or_default(&mut self, name: &str) -> &mut Value {
+    fn mut_or_default(&mut self, name: &str) -> &mut Gc<Value> {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 let entry = map.entry(name.to_owned());
-                entry.or_insert(Value::Void)
+                entry.or_insert(Gc::new(Value::Void))
             }
         }
     }
@@ -65,12 +66,12 @@ impl Interpreter {
             interp
                 .this_scope()
                 .unwrap()
-                .set(name.to_owned(), Value::Pattern(pattern));
+                .set(name.to_owned(), Gc::new(Value::Pattern(pattern)));
         }
         interp
     }
 
-    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: Vec<Value>) {
+    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: Vec<Gc<Value>>) {
         self.scope.push(Scope::ListComp {
             map: HashMap::new(),
             r#ref,
@@ -114,19 +115,21 @@ impl Interpreter {
     fn define_pattern(&mut self, pat_def: &parser::PatDef) -> anyhow::Result<()> {
         Ok(self.this_scope()?.set(
             pat_def.name.clone(),
-            Value::Pattern(Box::new(pat_def.clone())),
+            Gc::new(Value::Pattern(Box::new(pat_def.clone()))),
         ))
     }
 
-    fn eval_expr(&mut self, expr: &Expr) -> anyhow::Result<Value> {
+    fn eval_expr(&mut self, expr: &Expr) -> anyhow::Result<Gc<Value>> {
         Ok(match expr {
-            Expr::Comment(_) => Value::Void,
-            Expr::CharLiteral(c) => Value::Char(*c),
-            Expr::StringLiteral(s) => Value::List(s.chars().map(Value::Char).collect()),
-            Expr::IntLiteral(i) => Value::Int(*i),
+            Expr::Comment(_) => Gc::new(Value::Void),
+            Expr::CharLiteral(c) => Gc::new(Value::Char(*c)),
+            Expr::StringLiteral(s) => Gc::new(Value::List(
+                s.chars().map(|c| Gc::new(Value::Char(c))).collect(),
+            )),
+            Expr::IntLiteral(i) => Gc::new(Value::Int(*i)),
             Expr::If(cond) => self.eval_if(cond)?,
             Expr::While(cond) => self.eval_while(cond)?,
-            Expr::Length(expr) => Value::Int(self.eval_expr(expr)?.as_list()?.len() as _),
+            Expr::Length(expr) => Gc::new(Value::Int(self.eval_expr(expr)?.as_list()?.len() as _)),
             Expr::Ref(r#ref) => self.eval_ref(r#ref)?,
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
@@ -135,30 +138,30 @@ impl Interpreter {
                 over,
                 binding,
             } => self.eval_list_comp(expr, over, binding.as_ref().map(|b| b.as_ref()))?,
-            Expr::TupleLiteral(exprs) => Value::Tuple(
+            Expr::TupleLiteral(exprs) => Gc::new(Value::Tuple(
                 exprs
                     .iter()
                     .map(|e| self.eval_expr(e))
-                    .collect::<anyhow::Result<Vec<Value>>>()?,
-            ),
-            Expr::ListLiteral(exprs) => Value::List(
+                    .collect::<anyhow::Result<Vec<Gc<Value>>>>()?,
+            )),
+            Expr::ListLiteral(exprs) => Gc::new(Value::List(
                 exprs
                     .iter()
                     .map(|e| self.eval_expr(e))
-                    .collect::<anyhow::Result<Vec<Value>>>()?,
-            ),
+                    .collect::<anyhow::Result<Vec<Gc<Value>>>>()?,
+            )),
             Expr::CallPat(get_pat, arg) => self.eval_call_pat(get_pat, arg)?,
             Expr::Range(low, high, range_type) => self.eval_range(low, high, *range_type)?,
             Expr::BinOp(lhs, op, rhs) => self.eval_bin_op(lhs, *op, rhs)?,
         })
     }
 
-    fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Value> {
+    fn eval_call_pat(&mut self, get_pat: &Expr, arg: &Expr) -> anyhow::Result<Gc<Value>> {
         let pat = self.eval_expr(get_pat)?;
         let arg = self.eval_expr(arg)?;
 
         // hack for list indices
-        let result = if let (Value::List(list), Value::Int(i)) = (&pat, &arg) {
+        let result = if let (Value::List(list), Value::Int(i)) = (&*pat, &*arg) {
             list[*i as usize].clone()
         } else {
             pat.as_pattern()?.match_full(self, arg)?
@@ -167,30 +170,30 @@ impl Interpreter {
         Ok(result)
     }
 
-    fn eval_bin_op(&mut self, lhs: &Expr, op: Op, rhs: &Expr) -> anyhow::Result<Value> {
+    fn eval_bin_op(&mut self, lhs: &Expr, op: Op, rhs: &Expr) -> anyhow::Result<Gc<Value>> {
         let lhs = self.eval_expr(lhs)?;
         let rhs = self.eval_expr(rhs)?;
 
         if op == Op::Eq {
-            return Ok(Value::Int((lhs == rhs).into()));
+            return Ok(Gc::new(Value::Int((lhs == rhs).into())));
         }
 
         let lhs = lhs.as_int()?;
         let rhs = rhs.as_int()?;
         match op {
-            Op::Add => Ok(Value::Int(lhs + rhs)),
-            Op::Sub => Ok(Value::Int(lhs - rhs)),
-            Op::Mul => Ok(Value::Int(lhs * rhs)),
-            Op::Div => Ok(Value::Int(lhs / rhs)),
-            Op::Neq => Ok(Value::Int((lhs != rhs).into())),
-            Op::Lt => Ok(Value::Int((lhs < rhs).into())),
-            Op::Lte => Ok(Value::Int((lhs <= rhs).into())),
-            Op::Gt => Ok(Value::Int((lhs > rhs).into())),
-            Op::Gte => Ok(Value::Int((lhs >= rhs).into())),
-            Op::And => Ok(Value::Int((lhs != 0 && rhs != 0).into())),
-            Op::Or => Ok(Value::Int((lhs != 0 || rhs != 0).into())),
-            Op::Pow => Ok(Value::Int(lhs.pow(rhs as _))),
-            Op::Shl => Ok(Value::Int(lhs << rhs)),
+            Op::Add => Ok(Gc::new(Value::Int(lhs + rhs))),
+            Op::Sub => Ok(Gc::new(Value::Int(lhs - rhs))),
+            Op::Mul => Ok(Gc::new(Value::Int(lhs * rhs))),
+            Op::Div => Ok(Gc::new(Value::Int(lhs / rhs))),
+            Op::Neq => Ok(Gc::new(Value::Int((lhs != rhs).into()))),
+            Op::Lt => Ok(Gc::new(Value::Int((lhs < rhs).into()))),
+            Op::Lte => Ok(Gc::new(Value::Int((lhs <= rhs).into()))),
+            Op::Gt => Ok(Gc::new(Value::Int((lhs > rhs).into()))),
+            Op::Gte => Ok(Gc::new(Value::Int((lhs >= rhs).into()))),
+            Op::And => Ok(Gc::new(Value::Int((lhs != 0 && rhs != 0).into()))),
+            Op::Or => Ok(Gc::new(Value::Int((lhs != 0 || rhs != 0).into()))),
+            Op::Pow => Ok(Gc::new(Value::Int(lhs.pow(rhs as _)))),
+            Op::Shl => Ok(Gc::new(Value::Int(lhs << rhs))),
             Op::Eq => unreachable!(),
         }
     }
@@ -200,18 +203,18 @@ impl Interpreter {
         low: &Expr,
         high: &Expr,
         range_type: RangeType,
-    ) -> anyhow::Result<Value> {
+    ) -> anyhow::Result<Gc<Value>> {
         let lhs = self.eval_expr(low)?.as_int()?;
         let rhs = self.eval_expr(high)?.as_int()?;
         let (low, high) = if lhs < rhs { (lhs, rhs) } else { (rhs, lhs) };
-        Ok(Value::List(match range_type {
-            RangeType::Exclusive => (low..high).map(Value::Int).collect(),
-            RangeType::Inclusive => (low..=high).map(Value::Int).collect(),
-        }))
+        Ok(Gc::new(Value::List(match range_type {
+            RangeType::Exclusive => (low..high).map(|i| Gc::new(Value::Int(i))).collect(),
+            RangeType::Inclusive => (low..=high).map(|i| Gc::new(Value::Int(i))).collect(),
+        })))
     }
 
-    fn eval_block(&mut self, block: &[Expr]) -> anyhow::Result<Value> {
-        let mut res = Value::Void;
+    fn eval_block(&mut self, block: &[Expr]) -> anyhow::Result<Gc<Value>> {
+        let mut res = Gc::new(Value::Void);
         self.push_block_scope();
         for expr in block {
             res = self.eval_expr(expr)?;
@@ -223,35 +226,35 @@ impl Interpreter {
     fn eval_if(
         &mut self,
         Conditional { cond, then, r#else }: &Conditional,
-    ) -> anyhow::Result<Value> {
+    ) -> anyhow::Result<Gc<Value>> {
         let cond_val = self.eval_expr(cond)?;
         if cond_val.is_true()? {
             let ret = self.eval_expr(then)?;
             if let Some(_) = r#else {
                 Ok(ret)
             } else {
-                Ok(Value::Void)
+                Ok(Gc::new(Value::Void))
             }
         } else if let Some(r#else) = r#else {
             self.eval_expr(r#else)
         } else {
-            Ok(Value::Void)
+            Ok(Gc::new(Value::Void))
         }
     }
 
     fn eval_while(
         &mut self,
         Conditional { cond, then, .. }: &Conditional,
-    ) -> anyhow::Result<Value> {
+    ) -> anyhow::Result<Gc<Value>> {
         let mut cond_val = self.eval_expr(cond)?;
         while cond_val.is_true()? {
             self.eval_expr(then)?;
             cond_val = self.eval_expr(cond)?;
         }
-        Ok(Value::Void)
+        Ok(Gc::new(Value::Void))
     }
 
-    fn eval_ref(&mut self, r#ref: &Ref) -> anyhow::Result<Value> {
+    fn eval_ref(&mut self, r#ref: &Ref) -> anyhow::Result<Gc<Value>> {
         Ok(match r#ref {
             Ref::Name(var_name) => self.eval_ref_name(var_name)?,
             Ref::ListCompEl(r#ref) => self.eval_ref_list_comp_el(r#ref)?,
@@ -259,7 +262,7 @@ impl Interpreter {
         })
     }
 
-    fn eval_ref_name(&mut self, var_name: &str) -> anyhow::Result<Value> {
+    fn eval_ref_name(&mut self, var_name: &str) -> anyhow::Result<Gc<Value>> {
         self.scope
             .iter()
             .rev()
@@ -270,13 +273,13 @@ impl Interpreter {
                     r#ref: Some(Ref::Name(name)),
                     index: _,
                     list,
-                } if name == var_name => Some(Value::List(list.clone())),
+                } if name == var_name => Some(Gc::new(Value::List(list.clone()))),
                 Scope::ListComp { map, .. } => map.get(var_name).cloned(),
             })
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
 
-    fn eval_ref_list_comp_el(&mut self, search_ref: &Ref) -> anyhow::Result<Value> {
+    fn eval_ref_list_comp_el(&mut self, search_ref: &Ref) -> anyhow::Result<Gc<Value>> {
         self.scope
             .iter()
             .rev()
@@ -292,7 +295,7 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
     }
 
-    fn eval_list_comp_index(&mut self, search_ref: &Ref) -> anyhow::Result<Value> {
+    fn eval_list_comp_index(&mut self, search_ref: &Ref) -> anyhow::Result<Gc<Value>> {
         // TODO: duped with eval_list_comp_el
         self.scope
             .iter()
@@ -303,7 +306,7 @@ impl Interpreter {
                     r#ref: Some(r#ref),
                     index,
                     list: _,
-                } if r#ref == search_ref => Some(Value::Int(*index as _)),
+                } if r#ref == search_ref => Some(Gc::new(Value::Int(*index as _))),
                 _ => None,
             })
             .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
@@ -314,7 +317,7 @@ impl Interpreter {
         expr: &Expr,
         over: &Expr,
         binding: Option<&Expr>,
-    ) -> anyhow::Result<Value> {
+    ) -> anyhow::Result<Gc<Value>> {
         let r#ref = match (over, binding) {
             (Expr::Ref(_), Some(Expr::Ref(_))) => {
                 bail!("can't currently double bind list comprehension")
@@ -322,32 +325,33 @@ impl Interpreter {
             (Expr::Ref(r#ref), None) | (_, Some(Expr::Ref(r#ref))) => Some(r#ref.clone()),
             _ => None,
         };
-        let list = self.eval_expr(over)?.into_list()?;
+        let list = self.eval_expr(over)?;
+        let list = list.as_list()?;
         let len = list.len();
         let mut ret = Vec::with_capacity(len);
-        self.push_list_comp_scope(r#ref, list);
+        self.push_list_comp_scope(r#ref, list.clone());
         for _ in 0..len {
             ret.push(self.eval_expr(expr)?);
             self.incr_list_comp_index()?;
         }
         self.pop_scope();
-        Ok(Value::List(ret))
+        Ok(Gc::new(Value::List(ret)))
     }
 
-    fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Value> {
+    fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Gc<Value>> {
         let result = self.eval_expr(expr)?;
         self.assign_into(lvalue, result)?;
-        Ok(Value::Void)
+        Ok(Gc::new(Value::Void))
     }
 
-    fn assign_into(&mut self, lvalue: &Expr, val: Value) -> anyhow::Result<()> {
+    fn assign_into(&mut self, lvalue: &Expr, val: Gc<Value>) -> anyhow::Result<()> {
         if let Expr::TupleLiteral(exprs) = lvalue {
-            if let Value::Tuple(results) = val {
+            if let Value::Tuple(results) = &*val {
                 if exprs.len() != results.len() {
-                    bail!("Tuple length mismatch {:?} {:?}", exprs, results);
+                    bail!("Tuple length mismatch {:?} {:?}", exprs, results.len());
                 }
                 for (inner_lvalue, inner_value) in exprs.iter().zip(results.into_iter()) {
-                    self.assign_into(inner_lvalue, inner_value)?;
+                    self.assign_into(inner_lvalue, inner_value.clone())?;
                 }
             }
         } else {
@@ -356,7 +360,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Value> {
+    fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Gc<Value>> {
         Ok(match expr {
             Expr::Ref(Ref::Name(var_name)) => {
                 let existing_i = self
@@ -412,26 +416,26 @@ impl Interpreter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Trace, Finalize)]
 pub enum Value {
     Void,
     Char(char),
-    Tuple(Vec<Value>),
-    List(Vec<Value>),
+    Tuple(Vec<Gc<Value>>),
+    List(Vec<Gc<Value>>),
     Int(i128),
-    Pattern(Box<dyn Pattern>),
+    Pattern(#[unsafe_ignore_trace] Box<dyn Pattern>),
 }
 
 #[dyn_partial_eq]
 pub trait Pattern: Debug + DynClone {
     fn name(&self) -> &str;
-    fn match_full(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value>;
+    fn match_full(&self, interp: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>>;
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: Vec<Value>,
-    ) -> anyhow::Result<Option<(Value, Vec<Value>)>> {
-        self.match_full(interp, Value::List(arg))
+        arg: Vec<Gc<Value>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, Vec<Gc<Value>>)>> {
+        self.match_full(interp, Gc::new(Value::List(arg)))
             .map(|val| Some((val, vec![])))
     }
 }
@@ -443,7 +447,7 @@ impl Pattern for parser::PatDef {
         &self.name
     }
 
-    fn match_full(&self, interp: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, interp: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
         let matched_pattern = match_pat_def_full(interp, self, arg.clone())?.ok_or_else(|| {
             anyhow::anyhow!("Pattern {:?} not matched on {}", self.name(), print(&arg))
         })?;
@@ -459,8 +463,8 @@ impl Pattern for parser::PatDef {
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: Vec<Value>,
-    ) -> anyhow::Result<Option<(Value, Vec<Value>)>> {
+        arg: Vec<Gc<Value>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, Vec<Gc<Value>>)>> {
         let partial_match = match_pat_def_partial(interp, self, arg.clone())?;
         if partial_match.is_none() {
             return Ok(None);
@@ -478,14 +482,14 @@ impl Pattern for parser::PatDef {
 
 #[derive(Debug)]
 struct MatchedPattern {
-    bindings: Vec<(String, Value)>,
+    bindings: Vec<(String, Gc<Value>)>,
     expr: Expr,
 }
 
 fn match_pat_def_full(
     interp: &mut Interpreter,
     pat_def: &PatDef,
-    val: Value,
+    val: Gc<Value>,
 ) -> anyhow::Result<Option<MatchedPattern>> {
     // TODO?: perhaps it would be simpler to use an Or pattern here instead of having match arms be a
     // special case
@@ -504,8 +508,8 @@ fn match_pat_def_full(
 fn match_pat_def_partial(
     interp: &mut Interpreter,
     pat_def: &PatDef,
-    vals: Vec<Value>,
-) -> anyhow::Result<Option<(MatchedPattern, Vec<Value>)>> {
+    vals: Vec<Gc<Value>>,
+) -> anyhow::Result<Option<(MatchedPattern, Vec<Gc<Value>>)>> {
     for match_arm in &pat_def.matches {
         if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding)? {
             // TODO: duped with match_pat_def_full
@@ -530,13 +534,13 @@ enum MatchName {
 
 #[derive(Debug, Clone)]
 struct Match {
-    value: Value,
+    value: Gc<Value>,
     name: Option<MatchName>,
     inner_matches: Vec<Match>,
 }
 
 impl Match {
-    fn unnamed(value: Value) -> Self {
+    fn unnamed(value: Gc<Value>) -> Self {
         Self {
             value,
             name: None,
@@ -563,7 +567,7 @@ impl Match {
     }
 
     // TODO: return Result instead of panicking
-    fn collect_named_matches(&self) -> Vec<(String, Value)> {
+    fn collect_named_matches(&self) -> Vec<(String, Gc<Value>)> {
         let mut shovels: HashMap<String, usize> = HashMap::new();
         let mut scalars = HashSet::new();
 
@@ -583,11 +587,13 @@ impl Match {
                 }
                 MatchName::Shovel(name) => {
                     if let Some(&index) = shovels.get(&name) {
+                        return todo!();
                         let list = matches[index].1.as_list_mut().unwrap();
                         list.push(value);
                     } else {
+                        return todo!();
                         shovels.insert(name.to_owned(), matches.len());
-                        matches.push((name, Value::List(vec![value.clone()])));
+                        matches.push((name, Gc::new(Value::List(vec![value.clone()]))));
                     }
                 }
             }
@@ -606,19 +612,19 @@ impl Match {
 
 fn match_full(
     interp: &mut Interpreter,
-    val: Value,
+    val: Gc<Value>,
     binding: &parser::Binding,
 ) -> anyhow::Result<Option<Match>> {
     Ok(match binding {
         Binding::Char(c) => {
-            if Value::Char(*c) == val {
+            if Value::Char(*c) == *val {
                 Some(Match::unnamed(val))
             } else {
                 None
             }
         }
         Binding::ListOf(_, _) | Binding::ConcatList(_) | Binding::Concat(_, _) => {
-            if let Value::List(vals) = &val {
+            if let Value::List(vals) = &*val {
                 if let Some((matched, rest)) = match_partial(interp, vals.clone(), binding)? {
                     if rest.is_empty() {
                         Some(matched)
@@ -633,7 +639,7 @@ fn match_full(
             }
         }
         Binding::Tuple(bindings) => {
-            if let Value::Tuple(vals) = &val {
+            if let Value::Tuple(vals) = &*val {
                 let matches = vals
                     .iter()
                     .zip(bindings.iter())
@@ -680,9 +686,9 @@ fn match_full(
 // returns the remaining unmatched list if any
 fn match_partial(
     interp: &mut Interpreter,
-    vals: Vec<Value>,
+    vals: Vec<Gc<Value>>,
     binding: &parser::Binding,
-) -> anyhow::Result<Option<(Match, Vec<Value>)>> {
+) -> anyhow::Result<Option<(Match, Vec<Gc<Value>>)>> {
     Ok(match binding {
         Binding::Anything | Binding::Type(_) | Binding::Char(_) | Binding::Tuple(_) => {
             let val = vals.first();
@@ -719,7 +725,7 @@ fn match_partial(
                 return Ok(None);
             }
             let (right_matched, rest) = right.unwrap();
-            let this_match = Match::unnamed(Value::List(vals))
+            let this_match = Match::unnamed(Gc::new(Value::List(vals)))
                 .with_inner_matches(vec![left_matched, right_matched]);
             Some((this_match, rest))
         }
@@ -744,7 +750,7 @@ fn match_partial(
             }
             if let Some(ListLenBinding::Exact(_)) = len_binding {
                 return Ok(Some((
-                    Match::unnamed(Value::List(matched)).with_inner_matches(inners),
+                    Match::unnamed(Gc::new(Value::List(matched))).with_inner_matches(inners),
                     rest,
                 )));
             }
@@ -760,7 +766,7 @@ fn match_partial(
                 }
             }
             Some((
-                Match::unnamed(Value::List(matched)).with_inner_matches(inners),
+                Match::unnamed(Gc::new(Value::List(matched))).with_inner_matches(inners),
                 rest,
             ))
         }
@@ -812,31 +818,24 @@ impl Value {
         }
     }
 
-    fn as_list_mut(&mut self) -> anyhow::Result<&mut Vec<Value>> {
+    fn as_list_mut(&mut self) -> anyhow::Result<&mut Vec<Gc<Value>>> {
         match self {
             Value::List(l) => Ok(l),
             _ => Err(anyhow::anyhow!("not a list")),
         }
     }
 
-    fn as_list(&self) -> anyhow::Result<&Vec<Value>> {
+    fn as_list(&self) -> anyhow::Result<&Vec<Gc<Value>>> {
         match self {
             Value::List(l) => Ok(l),
             _ => Err(anyhow::anyhow!("not a list")),
         }
     }
 
-    fn into_list(self) -> anyhow::Result<Vec<Value>> {
+    fn as_tuple(&self) -> anyhow::Result<&Vec<Gc<Value>>> {
         match self {
-            Value::List(l) => Ok(l),
-            _ => Err(anyhow::anyhow!("{:?} is not a list", self)),
-        }
-    }
-
-    fn into_tuple(self) -> anyhow::Result<Vec<Value>> {
-        match self {
-            Value::Tuple(t) => Ok(t),
-            _ => Err(anyhow::anyhow!("{:?} is not a tuple", self)),
+            Value::Tuple(l) => Ok(l),
+            _ => Err(anyhow::anyhow!("not a tuple")),
         }
     }
 

@@ -1,5 +1,6 @@
 use crate::interp::{Interpreter, Pattern, Value};
 use dyn_partial_eq::DynPartialEq;
+use gc::Gc;
 use itertools::Itertools;
 use std::fmt::Write;
 use std::fs::read_to_string;
@@ -21,11 +22,14 @@ impl Pattern for ReadToString {
         "read_to_string"
     }
 
-    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
         let filename = arg.as_string()?;
-        Ok(Value::List(
-            read_to_string(filename)?.chars().map(Value::Char).collect(),
-        ))
+        Ok(Gc::new(Value::List(
+            read_to_string(filename)?
+                .chars()
+                .map(|c| Gc::new(Value::Char(c)))
+                .collect(),
+        )))
     }
 }
 
@@ -37,7 +41,7 @@ impl Pattern for DebugPrint {
         "dbg"
     }
 
-    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
         println!("{}", print(&arg));
         Ok(arg)
     }
@@ -85,15 +89,15 @@ impl Pattern for Push {
         "push"
     }
 
-    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
-        let tuple = arg.into_tuple()?;
+    fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
+        let tuple = arg.as_tuple()?;
         let (list, to_add) = tuple
             .into_iter()
             .collect_tuple()
             .ok_or_else(|| anyhow::anyhow!("wrong arguments"))?;
-        let mut list = list.into_list()?;
-        list.push(to_add);
-        Ok(Value::List(list))
+        let mut list = list.as_list()?.clone();
+        list.push(to_add.clone());
+        Ok(Gc::new(Value::List(list)))
     }
 }
 
@@ -105,7 +109,7 @@ impl Pattern for Exit {
         "exit"
     }
 
-    fn match_full(&self, _: &mut Interpreter, arg: Value) -> anyhow::Result<Value> {
+    fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
         std::process::exit(arg.as_int()? as _);
     }
 }
