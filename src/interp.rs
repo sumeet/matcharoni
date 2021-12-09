@@ -128,7 +128,11 @@ impl Interpreter {
             Expr::Ref(r#ref) => self.eval_ref(r#ref)?,
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
-            Expr::ListComprehension { expr, over } => self.eval_list_comp(expr, over)?,
+            Expr::ListComprehension {
+                expr,
+                over,
+                binding,
+            } => self.eval_list_comp(expr, over, binding.as_ref().map(|b| b.as_ref()))?,
             Expr::TupleLiteral(exprs) => Value::Tuple(
                 exprs
                     .iter()
@@ -190,8 +194,9 @@ impl Interpreter {
     }
 
     fn eval_range(&mut self, low: &Expr, high: &Expr) -> anyhow::Result<Value> {
-        let low = self.eval_expr(low)?.as_int()?;
-        let high = self.eval_expr(high)?.as_int()?;
+        let lhs = self.eval_expr(low)?.as_int()?;
+        let rhs = self.eval_expr(high)?.as_int()?;
+        let (low, high) = if lhs < rhs { (lhs, rhs) } else { (rhs, lhs) };
         Ok(Value::List((low..high).map(Value::Int).collect()))
     }
 
@@ -294,9 +299,17 @@ impl Interpreter {
             .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
     }
 
-    fn eval_list_comp(&mut self, expr: &Expr, over: &Expr) -> anyhow::Result<Value> {
-        let r#ref = match over {
-            Expr::Ref(r#ref) => Some(r#ref.clone()),
+    fn eval_list_comp(
+        &mut self,
+        expr: &Expr,
+        over: &Expr,
+        binding: Option<&Expr>,
+    ) -> anyhow::Result<Value> {
+        let r#ref = match (over, binding) {
+            (Expr::Ref(_), Some(Expr::Ref(_))) => {
+                bail!("can't currently double bind list comprehension")
+            }
+            (Expr::Ref(r#ref), None) | (_, Some(Expr::Ref(r#ref))) => Some(r#ref.clone()),
             _ => None,
         };
         let list = self.eval_expr(over)?.into_list()?;

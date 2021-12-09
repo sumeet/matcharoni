@@ -87,7 +87,11 @@ pub enum Expr {
     Ref(Ref),
     Block(Vec<Expr>),
     Assignment(Box<Expr>, Box<Expr>),
-    ListComprehension { expr: Box<Expr>, over: Box<Expr> },
+    ListComprehension {
+        expr: Box<Expr>,
+        over: Box<Expr>,
+        binding: Option<Box<Expr>>,
+    },
     ListLiteral(Vec<Expr>),
     CallPat(Box<Expr>, Box<Expr>),
     Range(Box<Expr>, Box<Expr>),
@@ -224,8 +228,8 @@ peg::parser! {
 
         rule expr() -> Expr
             = (comment_expr() / bin_op_expr() / range_expr() / subscript_expr() / assignment_expr() /
-               if_else_expr() / if_no_else_expr() / for_expr() / while_expr() / scalar_expr() /
-               block_expr())
+               if_else_expr() / if_no_else_expr() / for_with_binding_expr() / for_expr() /
+               while_expr() / scalar_expr() / block_expr())
 
         #[cache_left_rec]
         rule bin_op_expr() -> Expr
@@ -248,6 +252,7 @@ peg::parser! {
 
         rule scalar_expr() -> Expr
             = (parens_expr() / tuple_expr() / call_pat_expr() / char_literal_expr() /
+               list_comprehension_with_binding_expr() /
                list_comprehension_expr() / list_literal_expr() / string_literal_expr() /
                int_literal_expr() / callable_expr() / length_expr())
 
@@ -273,7 +278,16 @@ peg::parser! {
 
         rule list_comprehension_expr() -> Expr
             = "[" _? expr:expr() _? "<-" _? over:expr() _? "]" {
-                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
+                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over), binding: None }
+            }
+
+        rule list_comprehension_with_binding_expr() -> Expr
+            = "[" _? expr:expr() _? "<-" binding:ref_expr() _? "@" _? over:expr() _? "]" {
+                Expr::ListComprehension {
+                    expr: Box::new(expr),
+                    over: Box::new(over),
+                    binding: Some(Box::new(binding))
+                }
             }
 
         rule list_literal_expr() -> Expr
@@ -286,7 +300,16 @@ peg::parser! {
 
         rule for_expr() -> Expr
             = "for" _? over:scalar_expr() _? expr:block_expr() {
-                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over) }
+                Expr::ListComprehension { expr: Box::new(expr), over: Box::new(over), binding: None }
+            }
+
+        rule for_with_binding_expr() -> Expr
+            = "for" _? binding:ref_expr() _? "@" _? over:scalar_expr() _? expr:block_expr() {
+                Expr::ListComprehension {
+                    expr: Box::new(expr),
+                    over: Box::new(over),
+                    binding: Some(Box::new(binding)),
+                }
             }
 
         rule while_expr() -> Expr
