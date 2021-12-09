@@ -1,4 +1,5 @@
 #![feature(box_patterns)]
+#![feature(map_try_insert)]
 
 mod interp;
 mod parser;

@@ -5,7 +5,7 @@ use crate::parser::{
 use anyhow::bail;
 use dyn_clone::DynClone;
 use dyn_partial_eq::*;
-use gc::{Finalize, Gc, Trace};
+use gc::{Finalize, Gc, GcCell, Trace};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
@@ -15,12 +15,12 @@ use builtins::print;
 #[derive(Debug)]
 enum Scope {
     // should values be Rcd / Gcd?
-    Block(HashMap<String, Gc<Value>>),
+    Block(HashMap<String, GcCell<Gc<Value>>>),
     ListComp {
         r#ref: Option<Ref>,
         index: usize,
-        list: Vec<Gc<Value>>,
-        map: HashMap<String, Gc<Value>>,
+        list: GcCell<Vec<GcCell<Gc<Value>>>>,
+        map: HashMap<String, GcCell<Gc<Value>>>,
     },
 }
 
@@ -29,7 +29,7 @@ impl Scope {
         Scope::Block(HashMap::new())
     }
 
-    fn set(&mut self, name: String, value: Gc<Value>) {
+    fn set(&mut self, name: String, value: GcCell<Gc<Value>>) {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 map.insert(name.clone(), value);
@@ -43,11 +43,11 @@ impl Scope {
         }
     }
 
-    fn mut_or_default(&mut self, name: &str) -> &mut Gc<Value> {
+    fn mut_or_default(&mut self, name: &str) -> &mut GcCell<Gc<Value>> {
         match self {
             Scope::Block(map) | Scope::ListComp { map, .. } => {
                 let entry = map.entry(name.to_owned());
-                entry.or_insert(Gc::new(Value::Void))
+                entry.or_insert(GcCell::new(Gc::new(Value::Void)))
             }
         }
     }
@@ -63,15 +63,15 @@ impl Interpreter {
             scope: vec![Scope::new_block_scope()],
         };
         for (name, pattern) in builtins::builtins() {
-            interp
-                .this_scope()
-                .unwrap()
-                .set(name.to_owned(), Gc::new(Value::Pattern(pattern)));
+            interp.this_scope().unwrap().set(
+                name.to_owned(),
+                GcCell::new(Gc::new(Value::Pattern(pattern))),
+            );
         }
         interp
     }
 
-    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: Vec<Gc<Value>>) {
+    fn push_list_comp_scope(&mut self, r#ref: Option<Ref>, list: GcCell<Vec<GcCell<Gc<Value>>>>) {
         self.scope.push(Scope::ListComp {
             map: HashMap::new(),
             r#ref,
@@ -115,7 +115,7 @@ impl Interpreter {
     fn define_pattern(&mut self, pat_def: &parser::PatDef) -> anyhow::Result<()> {
         Ok(self.this_scope()?.set(
             pat_def.name.clone(),
-            Gc::new(Value::Pattern(Box::new(pat_def.clone()))),
+            GcCell::new(Gc::new(Value::Pattern(Box::new(pat_def.clone())))),
         ))
     }
 
@@ -123,13 +123,17 @@ impl Interpreter {
         Ok(match expr {
             Expr::Comment(_) => Gc::new(Value::Void),
             Expr::CharLiteral(c) => Gc::new(Value::Char(*c)),
-            Expr::StringLiteral(s) => Gc::new(Value::List(
-                s.chars().map(|c| Gc::new(Value::Char(c))).collect(),
-            )),
+            Expr::StringLiteral(s) => Gc::new(Value::List(GcCell::new(
+                s.chars()
+                    .map(|c| GcCell::new(Gc::new(Value::Char(c))))
+                    .collect(),
+            ))),
             Expr::IntLiteral(i) => Gc::new(Value::Int(*i)),
             Expr::If(cond) => self.eval_if(cond)?,
             Expr::While(cond) => self.eval_while(cond)?,
-            Expr::Length(expr) => Gc::new(Value::Int(self.eval_expr(expr)?.as_list()?.len() as _)),
+            Expr::Length(expr) => Gc::new(Value::Int(
+                self.eval_expr(expr)?.as_list_cell()?.borrow().len() as _,
+            )),
             Expr::Ref(r#ref) => self.eval_ref(r#ref)?,
             Expr::Block(expr) => self.eval_block(expr)?,
             Expr::Assignment(name, expr) => self.eval_assignment(name, expr)?,
@@ -144,12 +148,12 @@ impl Interpreter {
                     .map(|e| self.eval_expr(e))
                     .collect::<anyhow::Result<Vec<Gc<Value>>>>()?,
             )),
-            Expr::ListLiteral(exprs) => Gc::new(Value::List(
+            Expr::ListLiteral(exprs) => Gc::new(Value::List(GcCell::new(
                 exprs
                     .iter()
-                    .map(|e| self.eval_expr(e))
-                    .collect::<anyhow::Result<Vec<Gc<Value>>>>()?,
-            )),
+                    .map(|e| Ok(GcCell::new(self.eval_expr(e)?)))
+                    .collect::<anyhow::Result<Vec<GcCell<Gc<Value>>>>>()?,
+            ))),
             Expr::CallPat(get_pat, arg) => self.eval_call_pat(get_pat, arg)?,
             Expr::Range(low, high, range_type) => self.eval_range(low, high, *range_type)?,
             Expr::BinOp(lhs, op, rhs) => self.eval_bin_op(lhs, *op, rhs)?,
@@ -162,7 +166,7 @@ impl Interpreter {
 
         // hack for list indices
         let result = if let (Value::List(list), Value::Int(i)) = (&*pat, &*arg) {
-            list[*i as usize].clone()
+            Gc::clone(&(list.borrow()[*i as usize].borrow()))
         } else {
             pat.as_pattern()?.match_full(self, arg)?
         };
@@ -207,10 +211,14 @@ impl Interpreter {
         let lhs = self.eval_expr(low)?.as_int()?;
         let rhs = self.eval_expr(high)?.as_int()?;
         let (low, high) = if lhs < rhs { (lhs, rhs) } else { (rhs, lhs) };
-        Ok(Gc::new(Value::List(match range_type {
-            RangeType::Exclusive => (low..high).map(|i| Gc::new(Value::Int(i))).collect(),
-            RangeType::Inclusive => (low..=high).map(|i| Gc::new(Value::Int(i))).collect(),
-        })))
+        Ok(Gc::new(Value::List(GcCell::new(match range_type {
+            RangeType::Exclusive => (low..high)
+                .map(|i| GcCell::new(Gc::new(Value::Int(i))))
+                .collect(),
+            RangeType::Inclusive => (low..=high)
+                .map(|i| GcCell::new(Gc::new(Value::Int(i))))
+                .collect(),
+        }))))
     }
 
     fn eval_block(&mut self, block: &[Expr]) -> anyhow::Result<Gc<Value>> {
@@ -267,14 +275,14 @@ impl Interpreter {
             .iter()
             .rev()
             .find_map(|scope| match scope {
-                Scope::Block(scope) => scope.get(var_name).cloned(),
+                Scope::Block(scope) => scope.get(var_name).map(|v| v.borrow().clone()),
                 Scope::ListComp {
                     map: _,
                     r#ref: Some(Ref::Name(name)),
                     index: _,
                     list,
                 } if name == var_name => Some(Gc::new(Value::List(list.clone()))),
-                Scope::ListComp { map, .. } => map.get(var_name).cloned(),
+                Scope::ListComp { map, .. } => map.get(var_name).map(|v| v.borrow().clone()),
             })
             .ok_or_else(|| anyhow::anyhow!("Variable {} not found", var_name))
     }
@@ -289,7 +297,7 @@ impl Interpreter {
                     r#ref: Some(r#ref),
                     index,
                     list,
-                } if r#ref == search_ref => list.get(*index).cloned(),
+                } if r#ref == search_ref => list.borrow().get(*index).map(|v| v.borrow().clone()),
                 _ => None,
             })
             .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))
@@ -325,17 +333,17 @@ impl Interpreter {
             (Expr::Ref(r#ref), None) | (_, Some(Expr::Ref(r#ref))) => Some(r#ref.clone()),
             _ => None,
         };
-        let list = self.eval_expr(over)?;
-        let list = list.as_list()?;
-        let len = list.len();
+        let mut val = self.eval_expr(over)?;
+        let list = val.as_list_cell()?;
+        let len = list.borrow().len();
         let mut ret = Vec::with_capacity(len);
-        self.push_list_comp_scope(r#ref, list.clone());
+        self.push_list_comp_scope(r#ref, val.as_list_cell()?);
         for _ in 0..len {
-            ret.push(self.eval_expr(expr)?);
+            ret.push(GcCell::new(self.eval_expr(expr)?));
             self.incr_list_comp_index()?;
         }
         self.pop_scope();
-        Ok(Gc::new(Value::List(ret)))
+        Ok(Gc::new(Value::List(GcCell::new(ret))))
     }
 
     fn eval_assignment(&mut self, lvalue: &Expr, expr: &Expr) -> anyhow::Result<Gc<Value>> {
@@ -355,17 +363,17 @@ impl Interpreter {
                 }
             }
         } else {
-            *self.eval_lvalue(lvalue)? = val;
+            *(self.eval_lvalue(lvalue)?.borrow_mut()) = val;
         }
         Ok(())
     }
 
-    fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<&mut Gc<Value>> {
+    fn eval_lvalue(&mut self, expr: &Expr) -> anyhow::Result<Gc<GcCell<Gc<Value>>>> {
         Ok(match expr {
             Expr::Ref(Ref::Name(var_name)) => {
                 let existing_i = self
                     .scope
-                    .iter()
+                    .iter_mut()
                     .enumerate()
                     .rev()
                     .find_map(|(i, scope)| scope.has_var(var_name).then(|| i));
@@ -387,7 +395,7 @@ impl Interpreter {
                             r#ref: Some(r#ref),
                             index,
                             list,
-                        } if r#ref == search_ref => list.get_mut(*index),
+                        } if r#ref == search_ref => list.borrow_mut().get_mut(*index),
                         _ => None,
                     })
                     .ok_or_else(|| anyhow::anyhow!("Variable {:?} not found", search_ref))?
@@ -395,7 +403,9 @@ impl Interpreter {
             Expr::CallPat(get_pat, arg) => {
                 let i = self.eval_expr(arg)?.as_int()?;
                 let pat = self.eval_lvalue(get_pat)?;
-                pat.as_list_mut().map(|l| &mut l[i as usize])?
+                let pat = pat.borrow();
+                pat.as_list_cell()
+                    .map(|l| &mut l.borrow_mut()[i as usize])?
             }
             Expr::IntLiteral(_)
             | Expr::Ref(Ref::ListCompIndex(_))
@@ -421,7 +431,7 @@ pub enum Value {
     Void,
     Char(char),
     Tuple(Vec<Gc<Value>>),
-    List(Vec<Gc<Value>>),
+    List(GcCell<Vec<GcCell<Gc<Value>>>>),
     Int(i128),
     Pattern(#[unsafe_ignore_trace] Box<dyn Pattern>),
 }
@@ -433,10 +443,10 @@ pub trait Pattern: Debug + DynClone {
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: Vec<Gc<Value>>,
-    ) -> anyhow::Result<Option<(Gc<Value>, Vec<Gc<Value>>)>> {
+        arg: GcCell<Vec<GcCell<Gc<Value>>>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
         self.match_full(interp, Gc::new(Value::List(arg)))
-            .map(|val| Some((val, vec![])))
+            .map(|val| Some((val, GcCell::new(vec![]))))
     }
 }
 
@@ -453,7 +463,7 @@ impl Pattern for parser::PatDef {
         })?;
         interp.push_block_scope();
         for (name, val) in matched_pattern.bindings {
-            interp.this_scope()?.set(name, val);
+            interp.this_scope()?.set(name, GcCell::new(val));
         }
         let res = interp.eval_expr(&matched_pattern.expr)?;
         interp.pop_scope();
@@ -463,8 +473,8 @@ impl Pattern for parser::PatDef {
     fn match_partial(
         &self,
         interp: &mut Interpreter,
-        arg: Vec<Gc<Value>>,
-    ) -> anyhow::Result<Option<(Gc<Value>, Vec<Gc<Value>>)>> {
+        arg: GcCell<Vec<GcCell<Gc<Value>>>>,
+    ) -> anyhow::Result<Option<(Gc<Value>, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
         let partial_match = match_pat_def_partial(interp, self, arg.clone())?;
         if partial_match.is_none() {
             return Ok(None);
@@ -472,7 +482,7 @@ impl Pattern for parser::PatDef {
         let (matched_pattern, rest) = partial_match.unwrap();
         interp.push_block_scope();
         for (name, val) in matched_pattern.bindings {
-            interp.this_scope()?.set(name, val);
+            interp.this_scope()?.set(name, GcCell::new(val));
         }
         let res = Some((interp.eval_expr(&matched_pattern.expr)?, rest));
         interp.pop_scope();
@@ -508,8 +518,8 @@ fn match_pat_def_full(
 fn match_pat_def_partial(
     interp: &mut Interpreter,
     pat_def: &PatDef,
-    vals: Vec<Gc<Value>>,
-) -> anyhow::Result<Option<(MatchedPattern, Vec<Gc<Value>>)>> {
+    vals: GcCell<Vec<GcCell<Gc<Value>>>>,
+) -> anyhow::Result<Option<(MatchedPattern, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
     for match_arm in &pat_def.matches {
         if let Some((matched, rest)) = match_partial(interp, vals.clone(), &match_arm.binding)? {
             // TODO: duped with match_pat_def_full
@@ -587,13 +597,14 @@ impl Match {
                 }
                 MatchName::Shovel(name) => {
                     if let Some(&index) = shovels.get(&name) {
-                        return todo!();
-                        let list = matches[index].1.as_list_mut().unwrap();
-                        list.push(value);
+                        let list = matches[index].1.as_list_cell().unwrap();
+                        list.borrow_mut().push(GcCell::new(value));
                     } else {
-                        return todo!();
                         shovels.insert(name.to_owned(), matches.len());
-                        matches.push((name, Gc::new(Value::List(vec![value.clone()]))));
+                        matches.push((
+                            name,
+                            Gc::new(Value::List(GcCell::new(vec![GcCell::new(value.clone())]))),
+                        ));
                     }
                 }
             }
@@ -626,7 +637,7 @@ fn match_full(
         Binding::ListOf(_, _) | Binding::ConcatList(_) | Binding::Concat(_, _) => {
             if let Value::List(vals) = &*val {
                 if let Some((matched, rest)) = match_partial(interp, vals.clone(), binding)? {
-                    if rest.is_empty() {
+                    if rest.borrow().is_empty() {
                         Some(matched)
                     } else {
                         None
@@ -686,18 +697,18 @@ fn match_full(
 // returns the remaining unmatched list if any
 fn match_partial(
     interp: &mut Interpreter,
-    vals: Vec<Gc<Value>>,
+    vals: GcCell<Vec<GcCell<Gc<Value>>>>,
     binding: &parser::Binding,
-) -> anyhow::Result<Option<(Match, Vec<Gc<Value>>)>> {
+) -> anyhow::Result<Option<(Match, GcCell<Vec<GcCell<Gc<Value>>>>)>> {
     Ok(match binding {
         Binding::Anything | Binding::Type(_) | Binding::Char(_) | Binding::Tuple(_) => {
-            let val = vals.first();
-            if val.is_none() {
+            let vals = vals.borrow();
+            if vals.is_empty() {
                 return Ok(None);
             }
-            let val = val.unwrap();
-            if let Some(matched) = match_full(interp, val.clone(), binding)? {
-                Some((matched, vals.into_iter().skip(1).collect()))
+            let val = Gc::clone(&vals.first().unwrap().borrow());
+            if let Some(matched) = match_full(interp, val, binding)? {
+                Some((matched, GcCell::new(vals.iter().skip(1).cloned().collect())))
             } else {
                 None
             }
@@ -742,7 +753,7 @@ fn match_partial(
                         }
                         let (inner_match, inner_rest) = inner.unwrap();
                         inners.push(inner_match.clone());
-                        matched.push(inner_match.value);
+                        matched.push(GcCell::new(inner_match.value));
                         rest = inner_rest;
                     }
                 }
@@ -750,7 +761,8 @@ fn match_partial(
             }
             if let Some(ListLenBinding::Exact(_)) = len_binding {
                 return Ok(Some((
-                    Match::unnamed(Gc::new(Value::List(matched))).with_inner_matches(inners),
+                    Match::unnamed(Gc::new(Value::List(GcCell::new(matched))))
+                        .with_inner_matches(inners),
                     rest,
                 )));
             }
@@ -758,15 +770,16 @@ fn match_partial(
                 match_partial(interp, rest.clone(), binding)?
             {
                 inners.push(inner_match.clone());
-                matched.push(inner_match.value);
+                matched.push(GcCell::new(inner_match.value));
                 rest = inner_rest;
 
-                if rest.is_empty() {
+                if rest.borrow().is_empty() {
                     break;
                 }
             }
             Some((
-                Match::unnamed(Gc::new(Value::List(matched))).with_inner_matches(inners),
+                Match::unnamed(Gc::new(Value::List(GcCell::new(matched))))
+                    .with_inner_matches(inners),
                 rest,
             ))
         }
@@ -789,11 +802,12 @@ fn match_partial(
 }
 
 impl Value {
-    fn as_string(&self) -> anyhow::Result<String> {
+    fn collect_string(&self) -> anyhow::Result<String> {
         Ok(self
-            .as_list()?
+            .as_list_cell()?
+            .borrow()
             .iter()
-            .map(|v| v.as_char())
+            .map(|v| v.borrow().as_char())
             .collect::<anyhow::Result<String>>()?)
     }
 
@@ -818,19 +832,19 @@ impl Value {
         }
     }
 
-    fn as_list_mut(&mut self) -> anyhow::Result<&mut Vec<Gc<Value>>> {
+    fn as_list_cell(&self) -> anyhow::Result<GcCell<Vec<GcCell<Gc<Value>>>>> {
         match self {
-            Value::List(l) => Ok(l),
-            _ => Err(anyhow::anyhow!("not a list")),
+            Value::List(l) => Ok(l.clone()),
+            _ => Err(anyhow::anyhow!("{:?} is not a list", self)),
         }
     }
 
-    fn as_list(&self) -> anyhow::Result<&Vec<Gc<Value>>> {
-        match self {
-            Value::List(l) => Ok(l),
-            _ => Err(anyhow::anyhow!("not a list")),
-        }
-    }
+    // fn as_list(&self) -> anyhow::Result<&[GcCell<Gc<Value>>]> {
+    //     match self {
+    //         Value::List(l) => Ok(&(*l).borrow()),
+    //         _ => Err(anyhow::anyhow!("not a list")),
+    //     }
+    // }
 
     fn as_tuple(&self) -> anyhow::Result<&Vec<Gc<Value>>> {
         match self {

@@ -1,6 +1,6 @@
 use crate::interp::{Interpreter, Pattern, Value};
 use dyn_partial_eq::DynPartialEq;
-use gc::Gc;
+use gc::{Gc, GcCell};
 use itertools::Itertools;
 use std::fmt::Write;
 use std::fs::read_to_string;
@@ -23,13 +23,13 @@ impl Pattern for ReadToString {
     }
 
     fn match_full(&self, _: &mut Interpreter, arg: Gc<Value>) -> anyhow::Result<Gc<Value>> {
-        let filename = arg.as_string()?;
-        Ok(Gc::new(Value::List(
+        let filename = arg.collect_string()?;
+        Ok(Gc::new(Value::List(GcCell::new(
             read_to_string(filename)?
                 .chars()
-                .map(|c| Gc::new(Value::Char(c)))
+                .map(|c| GcCell::new(Gc::new(Value::Char(c))))
                 .collect(),
-        )))
+        ))))
     }
 }
 
@@ -65,12 +65,12 @@ pub fn print(arg: &Value) -> String {
         }
         Value::List(vals) => {
             write!(&mut s, "[").unwrap();
-            if let Some((last, rest)) = vals.split_last() {
+            if let Some((last, rest)) = vals.borrow().split_last() {
                 for val in rest {
-                    write!(&mut s, "{}", print(val)).unwrap();
+                    write!(&mut s, "{}", print(&*val.borrow())).unwrap();
                     write!(&mut s, ", ").unwrap();
                 }
-                write!(&mut s, "{}", print(last)).unwrap();
+                write!(&mut s, "{}", print(&*last.borrow())).unwrap();
             }
             write!(&mut s, "]")
         }
@@ -95,8 +95,8 @@ impl Pattern for Push {
             .into_iter()
             .collect_tuple()
             .ok_or_else(|| anyhow::anyhow!("wrong arguments"))?;
-        let mut list = list.as_list()?.clone();
-        list.push(to_add.clone());
+        let mut list = list.as_list_cell()?;
+        list.borrow_mut().push(GcCell::new(to_add.clone()));
         Ok(Gc::new(Value::List(list)))
     }
 }
