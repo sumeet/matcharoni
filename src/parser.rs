@@ -367,7 +367,7 @@ peg::parser! {
             = int:$("0" / "-"? ['1' ..= '9']+ ['0' ..= '9']*) {? int.parse().or(Err("not a number")) }
         rule type_ident() -> &'input str = $(type_ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*)
         rule type_ident_start() -> &'input str = $(['A'..='Z' | '_']+)
-        rule ident() -> &'input str = !("if" / "while" / "for") i:$(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*) { i }
+        rule ident() -> &'input str = !("if" / "while" / "for" / "pat") i:$(ident_start()+ ['a'..='z' | 'A'..='Z' | '_' | '0'..='9']*) { i }
         rule ident_start() -> &'input str = $(['a'..='z' | '_']+)
         rule comma() -> () = _? "," _?
         rule nbspace() = onespace()+
