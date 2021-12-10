@@ -7,7 +7,10 @@ pattern matching, and has been developed around parsing and solving
 To get a taste of the language, let's parse some Advent of Code puzzle inputs in
 this README.
 
-### You can also see the full solutions in the [web editor](TODO) or the Advent of Code speedrun video:
+You can see full solutions in the [examples dir](./examples/) or the Advent of
+Code video:
+
+[![Video](ytthumb.png)](https://www.youtube.com/watch?v=2GnqHe2wx_M)
 
 ### [Day 1: Sonar Sweep](https://adventofcode.com/2021/day/1)
 
@@ -89,7 +92,7 @@ dbg(parse_input(read_to_string("./input.txt")))
 `[199, 200, 208, 210, 200, 207, 240, 269, 260, 263]`
 
 We're only covering the parsing in this README. To see the full solution, check
-out the [web editor](TODO).
+out the [examples dir](./examples/).
 
 ### [Day 4: Giant Squid](https://adventofcode.com/2021/day/4)
 
@@ -160,7 +163,7 @@ Outputs
 ("cards", [[[22, 13, 17, 11, 0], [8, 2, 23, 4, 24], [21, 9, 14, 16, 7], [6, 10, 3, 18, 5], [1, 12, 20, 15, 19]], [[3, 15, 0, 2, 22], [9, 18, 13, 17, 5], [19, 8, 7, 25, 23], [20, 11, 10, 24, 4], [14, 21, 16, 12, 6]], [[14, 21, 17, 24, 4], [10, 16, 15, 9, 19], [18, 8, 23, 26, 20], [22, 11, 13, 6, 5], [2, 0, 12, 3, 7]]])
 ```
 
-You can find the full solution in the [web editor](TODO).
+You can find the full solution in the [examples dir](./examples/).
 
 ## Build and run instructions
 
